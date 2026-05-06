@@ -15,6 +15,17 @@ import {
   mapFmpSp500Constituent
 } from "./mappers";
 
+const assertFmpArrayResponse = (
+  response: unknown,
+  context: string
+): unknown[] => {
+  if (!Array.isArray(response)) {
+    throw new Error(`FMP ${context} response was not an array`);
+  }
+
+  return response;
+};
+
 export class FmpProvider implements PriceProvider, EstimateProvider, CompositionProvider {
   constructor(private readonly client = new FmpClient()) {}
 
@@ -23,9 +34,10 @@ export class FmpProvider implements PriceProvider, EstimateProvider, Composition
       return [];
     }
 
-    const rows = await this.client.get<unknown[]>("/batch-quote-short", {
+    const response = await this.client.get<unknown>("/batch-quote-short", {
       symbols: symbols.join(",")
     });
+    const rows = assertFmpArrayResponse(response, `quotes for ${symbols.join(",")}`);
 
     return rows.map(mapFmpQuote);
   }
@@ -34,24 +46,30 @@ export class FmpProvider implements PriceProvider, EstimateProvider, Composition
     symbol: string,
     period: "annual" | "quarter"
   ): Promise<ProviderEstimate[]> {
-    const rows = await this.client.get<unknown[]>("/analyst-estimates", {
+    const response = await this.client.get<unknown>("/analyst-estimates", {
       symbol,
       period,
       page: 0,
       limit: 20
     });
+    const rows = assertFmpArrayResponse(
+      response,
+      `analyst estimates for ${symbol} ${period}`
+    );
 
     return rows.map((row) => mapFmpEstimate(row, period));
   }
 
   async getSp500Constituents(): Promise<ProviderConstituent[]> {
-    const rows = await this.client.get<unknown[]>("/sp500-constituent");
+    const response = await this.client.get<unknown>("/sp500-constituent");
+    const rows = assertFmpArrayResponse(response, "S&P 500 constituents");
 
     return rows.map(mapFmpSp500Constituent);
   }
 
   async getEtfHoldings(symbol: string): Promise<ProviderHolding[]> {
-    const rows = await this.client.get<unknown[]>("/etf/holdings", { symbol });
+    const response = await this.client.get<unknown>("/etf/holdings", { symbol });
+    const rows = assertFmpArrayResponse(response, `ETF holdings for ${symbol}`);
 
     return rows.map(mapFmpHolding).filter((holding) => holding.weight > 0);
   }
