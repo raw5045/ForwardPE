@@ -11,6 +11,10 @@ function periodKey(estimate: EstimateInput) {
     : `${estimate.fiscalYear}`;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
 function averageAnalystCount(estimates: EstimateInput[]) {
   const counts = estimates
     .map((estimate) => estimate.analystCount)
@@ -31,6 +35,27 @@ function remainingFullMonths(startDate: Date, endDate: Date) {
   const monthDelta = endDate.getUTCMonth() - startDate.getUTCMonth();
 
   return Math.max(0, Math.min(12, yearMonths + monthDelta));
+}
+
+function fiscalQuarterIndex(estimate: EstimateInput) {
+  return estimate.fiscalYear * 4 + Number(estimate.fiscalQuarter) - 1;
+}
+
+function areContiguousQuarters(estimates: EstimateInput[]) {
+  return estimates.every((estimate, index) => {
+    if (index === 0) {
+      return true;
+    }
+
+    return (
+      fiscalQuarterIndex(estimate) ===
+      fiscalQuarterIndex(estimates[index - 1]) + 1
+    );
+  });
+}
+
+function areContiguousFiscalYears(estimates: EstimateInput[]) {
+  return estimates[1]?.fiscalYear === estimates[0]?.fiscalYear + 1;
 }
 
 function unavailable(
@@ -79,7 +104,7 @@ function valuationResult(
 export function calculateStockValuation(
   input: StockValuationInput,
 ): StockValuationResult {
-  if (input.price === null || input.price <= 0) {
+  if (!isFiniteNumber(input.price) || input.price <= 0) {
     return unavailable(input, "missing_price");
   }
 
@@ -89,12 +114,22 @@ export function calculateStockValuation(
       (estimate) =>
         estimate.periodType === "quarter" &&
         !estimate.reported &&
-        typeof estimate.epsAvg === "number",
+        isFiniteNumber(estimate.epsAvg) &&
+        estimate.periodEndDate >= input.valuationDate &&
+        isFiniteNumber(estimate.fiscalQuarter),
     )
-    .sort((a, b) => a.periodEndDate.localeCompare(b.periodEndDate))
+    .sort(
+      (a, b) =>
+        a.fiscalYear - b.fiscalYear ||
+        Number(a.fiscalQuarter) - Number(b.fiscalQuarter) ||
+        a.periodEndDate.localeCompare(b.periodEndDate),
+    )
     .slice(0, 4);
 
-  if (quarterlyEstimates.length === 4) {
+  if (
+    quarterlyEstimates.length === 4 &&
+    areContiguousQuarters(quarterlyEstimates)
+  ) {
     const ntmEps = quarterlyEstimates.reduce(
       (sum, estimate) => sum + Number(estimate.epsAvg),
       0,
@@ -123,9 +158,14 @@ export function calculateStockValuation(
       (estimate) =>
         estimate.periodType === "annual" &&
         !estimate.reported &&
-        typeof estimate.epsAvg === "number",
+        isFiniteNumber(estimate.epsAvg) &&
+        estimate.periodEndDate >= input.valuationDate,
     )
-    .sort((a, b) => a.periodEndDate.localeCompare(b.periodEndDate))
+    .sort(
+      (a, b) =>
+        a.fiscalYear - b.fiscalYear ||
+        a.periodEndDate.localeCompare(b.periodEndDate),
+    )
     .slice(0, 2);
 
   if (annualEstimates.length < 2) {
@@ -133,6 +173,15 @@ export function calculateStockValuation(
       input,
       "missing_annual_estimates",
       "missing_quarterly_estimates",
+    );
+  }
+
+  if (!areContiguousFiscalYears(annualEstimates)) {
+    return unavailable(
+      input,
+      "stale_estimates",
+      "missing_quarterly_estimates",
+      annualEstimates,
     );
   }
 
