@@ -17,7 +17,7 @@ const toRecord = (row: unknown): FmpRow => {
 
 const toStringValue = (value: unknown): string => {
   if (typeof value === "string") {
-    return value;
+    return value.trim();
   }
 
   if (typeof value === "number") {
@@ -28,17 +28,51 @@ const toStringValue = (value: unknown): string => {
 };
 
 const toNullableFiniteNumber = (value: unknown): number | null => {
-  if (value === null || value === undefined || value === "") {
+  if (value === null || value === undefined) {
     return null;
   }
 
-  const numberValue = typeof value === "number" ? value : Number(value);
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmedValue = value.trim();
+
+  if (trimmedValue === "") {
+    return null;
+  }
+
+  const numberValue = Number(trimmedValue);
   return Number.isFinite(numberValue) ? numberValue : null;
 };
 
-const toRequiredFiniteNumber = (value: unknown): number | null => {
-  const numberValue = toNullableFiniteNumber(value);
-  return numberValue === null ? null : numberValue;
+const isPresent = (value: unknown): boolean => value !== null && value !== undefined;
+
+const isNumberLike = (value: unknown): boolean => {
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  const trimmedValue = value.trim();
+  return trimmedValue !== "" && Number.isFinite(Number(trimmedValue));
+};
+
+const requireString = (value: unknown, missingMessage: string): string => {
+  const stringValue = typeof value === "string" ? value.trim() : "";
+
+  if (stringValue === "") {
+    throw new Error(missingMessage);
+  }
+
+  return stringValue;
 };
 
 const parsePeriodEndDate = (row: FmpRow, symbol: string, periodType: "annual" | "quarter") => {
@@ -65,6 +99,12 @@ const parsePeriodEndDate = (row: FmpRow, symbol: string, periodType: "annual" | 
   return { fiscalYear, month, periodEndDate };
 };
 
+const isQuarterEndDate = (month: number, day: number): boolean =>
+  (month === 3 && day === 31) ||
+  (month === 6 && day === 30) ||
+  (month === 9 && day === 30) ||
+  (month === 12 && day === 31);
+
 const fiscalQuarterFromMonth = (month: number, symbol: string): number => {
   const fiscalQuarter = Math.ceil(month / 3);
 
@@ -81,8 +121,13 @@ export const mapFmpEstimate = (
 ): ProviderEstimate => {
   const raw = row;
   const record = toRecord(row);
-  const symbol = toStringValue(record.symbol);
+  const symbol = requireString(record.symbol, "FMP estimate is missing symbol");
   const { fiscalYear, month, periodEndDate } = parsePeriodEndDate(record, symbol, periodType);
+  const day = Number(periodEndDate.slice(8, 10));
+
+  if (periodType === "quarter" && !isQuarterEndDate(month, day)) {
+    throw new Error(`FMP quarter estimate for ${symbol} has invalid quarter end date`);
+  }
 
   return {
     symbol,
@@ -101,8 +146,8 @@ export const mapFmpEstimate = (
 export const mapFmpQuote = (row: unknown): ProviderQuote => {
   const raw = row;
   const record = toRecord(row);
-  const symbol = toStringValue(record.symbol);
-  const price = toRequiredFiniteNumber(record.price);
+  const symbol = requireString(record.symbol, "FMP quote is missing symbol");
+  const price = toNullableFiniteNumber(record.price);
 
   if (price === null) {
     throw new Error(`FMP quote for ${symbol} is missing price`);
@@ -118,10 +163,15 @@ export const mapFmpQuote = (row: unknown): ProviderQuote => {
 export const mapFmpSp500Constituent = (row: unknown): ProviderConstituent => {
   const raw = row;
   const record = toRecord(row);
+  const symbol = requireString(record.symbol, "FMP S&P 500 constituent is missing symbol");
+  const name = requireString(
+    record.name,
+    `FMP S&P 500 constituent for ${symbol} is missing name`
+  );
 
   return {
-    symbol: toStringValue(record.symbol),
-    name: toStringValue(record.name),
+    symbol,
+    name,
     sector: toStringValue(record.sector) || null,
     raw
   };
@@ -130,10 +180,16 @@ export const mapFmpSp500Constituent = (row: unknown): ProviderConstituent => {
 export const mapFmpHolding = (row: unknown): ProviderHolding => {
   const raw = row;
   const record = toRecord(row);
-  const weightPercent = toNullableFiniteNumber(record.weightPercentage ?? record.weight);
+  const symbol = requireString(record.asset ?? record.symbol, "FMP holding is missing symbol");
+  const weightValue = record.weightPercentage ?? record.weight;
+  const weightPercent = toNullableFiniteNumber(weightValue);
+
+  if (isPresent(weightValue) && !isNumberLike(weightValue)) {
+    throw new Error(`FMP holding for ${symbol} has invalid weight`);
+  }
 
   return {
-    symbol: toStringValue(record.asset ?? record.symbol),
+    symbol,
     name: toStringValue(record.name) || null,
     weight: weightPercent === null ? 0 : weightPercent / 100,
     raw

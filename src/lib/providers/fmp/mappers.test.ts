@@ -80,6 +80,27 @@ describe("FMP mappers", () => {
     });
   });
 
+  it("does not parse malformed estimate values as zero", () => {
+    expect(
+      mapFmpEstimate(
+        {
+          symbol: "AAPL",
+          date: "2026-03-31",
+          estimatedEpsAvg: false,
+          estimatedEpsLow: [],
+          estimatedEpsHigh: "   ",
+          numberAnalystEstimatedEps: {}
+        },
+        "quarter"
+      )
+    ).toMatchObject({
+      epsAvg: null,
+      epsLow: null,
+      epsHigh: null,
+      analystCount: null
+    });
+  });
+
   it("rejects quarterly estimates with invalid period-end dates", () => {
     expect(() =>
       mapFmpEstimate(
@@ -93,6 +114,36 @@ describe("FMP mappers", () => {
     ).toThrow("FMP quarter estimate for AAPL has invalid period end date");
   });
 
+  it("rejects quarterly estimates that are not quarter-end dates", () => {
+    expect(() =>
+      mapFmpEstimate(
+        {
+          symbol: "AAPL",
+          date: "2026-02-15",
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toThrow("FMP quarter estimate for AAPL has invalid quarter end date");
+
+    expect(() =>
+      mapFmpEstimate(
+        {
+          symbol: "AAPL",
+          date: "2026-04-01",
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toThrow("FMP quarter estimate for AAPL has invalid quarter end date");
+  });
+
+  it("rejects estimate rows without a symbol", () => {
+    expect(() => mapFmpEstimate({ symbol: " ", date: "2026-03-31" }, "quarter")).toThrow(
+      "FMP estimate is missing symbol"
+    );
+  });
+
   it("maps quote rows", () => {
     expect(mapFmpQuote({ symbol: "AAPL", price: 220.12, volume: 1000 })).toEqual({
       symbol: "AAPL",
@@ -103,6 +154,26 @@ describe("FMP mappers", () => {
 
   it("rejects quote rows without a finite price", () => {
     expect(() => mapFmpQuote({ symbol: "AAPL", price: "n/a" })).toThrow(
+      "FMP quote for AAPL is missing price"
+    );
+  });
+
+  it("rejects quote rows without a symbol", () => {
+    expect(() => mapFmpQuote({ symbol: " ", price: 220.12 })).toThrow(
+      "FMP quote is missing symbol"
+    );
+
+    expect(() => mapFmpQuote({ symbol: 123, price: 220.12 })).toThrow(
+      "FMP quote is missing symbol"
+    );
+  });
+
+  it("rejects quote prices that are malformed non-string values", () => {
+    expect(() => mapFmpQuote({ symbol: "AAPL", price: false })).toThrow(
+      "FMP quote for AAPL is missing price"
+    );
+
+    expect(() => mapFmpQuote({ symbol: "AAPL", price: [] })).toThrow(
       "FMP quote for AAPL is missing price"
     );
   });
@@ -123,6 +194,16 @@ describe("FMP mappers", () => {
     });
   });
 
+  it("rejects S&P 500 constituent rows without required identity fields", () => {
+    expect(() => mapFmpSp500Constituent({ symbol: " ", name: "Apple Inc." })).toThrow(
+      "FMP S&P 500 constituent is missing symbol"
+    );
+
+    expect(() => mapFmpSp500Constituent({ symbol: "AAPL", name: " " })).toThrow(
+      "FMP S&P 500 constituent for AAPL is missing name"
+    );
+  });
+
   it("maps ETF holding rows and normalizes percent weights", () => {
     expect(mapFmpHolding({ asset: "AAPL", name: "Apple Inc.", weightPercentage: 7.5 })).toEqual({
       symbol: "AAPL",
@@ -132,10 +213,32 @@ describe("FMP mappers", () => {
     });
   });
 
-  it("maps invalid ETF holding weights to zero", () => {
-    expect(mapFmpHolding({ symbol: "AAPL", name: "Apple Inc.", weight: "n/a" })).toMatchObject({
+  it("maps missing ETF holding weights to zero", () => {
+    expect(mapFmpHolding({ symbol: "AAPL", name: "Apple Inc." })).toMatchObject({
       symbol: "AAPL",
       weight: 0
     });
+  });
+
+  it("rejects present but malformed ETF holding weights", () => {
+    expect(() => mapFmpHolding({ symbol: "AAPL", name: "Apple Inc.", weight: "n/a" })).toThrow(
+      "FMP holding for AAPL has invalid weight"
+    );
+
+    expect(() =>
+      mapFmpHolding({ symbol: "AAPL", name: "Apple Inc.", weightPercentage: false })
+    ).toThrow("FMP holding for AAPL has invalid weight");
+  });
+
+  it("rejects ETF holding rows without a symbol", () => {
+    expect(() => mapFmpHolding({ asset: " ", name: "Apple Inc.", weightPercentage: 7.5 })).toThrow(
+      "FMP holding is missing symbol"
+    );
+  });
+
+  it("preserves the raw row reference", () => {
+    const row = { symbol: "AAPL", price: 220.12 };
+
+    expect(mapFmpQuote(row).raw).toBe(row);
   });
 });
