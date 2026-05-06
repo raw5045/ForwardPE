@@ -170,10 +170,18 @@ Aggregate records should also store:
 
 - `covered_weight`: percentage of index/ETF weight with usable NTM EPS.
 - `missing_weight`: percentage without usable NTM EPS.
+- `quarterly_sum_weight`: percentage of index/ETF weight using the primary next-four-quarter method.
+- `fiscal_year_interpolation_weight`: percentage of index/ETF weight using the annual fallback method.
+- `unavailable_weight`: percentage of index/ETF weight without a usable NTM EPS value.
+- `quarterly_sum_count`: number of constituents using the primary next-four-quarter method.
+- `fiscal_year_interpolation_count`: number of constituents using the annual fallback method.
+- `unavailable_count`: number of constituents without a usable NTM EPS value.
 - `constituent_count`
 - `covered_constituent_count`
 - `method`
 - `source`
+
+For the S&P 500, the dashboard should show both count-based and weight-based method coverage. Count-based coverage answers, "What percentage of companies use the best method?" Weight-based coverage answers, "What percentage of the index market exposure uses the best method?" Weight-based coverage is more important for aggregate confidence, but count-based coverage is easier to reason about when diagnosing data quality.
 
 ## User Interface
 
@@ -185,7 +193,7 @@ Primary screens:
 - Instrument detail page: current valuation, historical chart, percentile/range, coverage quality, and top constituents where relevant.
 - Stock detail page: price, NTM EPS, forward P/E, estimate history, and valuation history.
 - S&P 500 screener: table of constituents with price, NTM EPS, forward P/E, sector, and last update.
-- Admin/data health page: ingestion runs, stale symbols, missing estimates, failed provider calls, coverage by group, and manual run controls.
+- Admin/data health page: ingestion runs, stale symbols, missing estimates, failed provider calls, coverage by group, NTM method mix by group, and manual run controls.
 - Methodology page: explains NTM calculation, aggregate calculation, coverage rules, and internal-only FMP source usage.
 
 The first screen should be the actual dashboard, not a landing page.
