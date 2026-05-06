@@ -3,11 +3,14 @@ import { FmpClient } from "./client";
 
 describe("FmpClient", () => {
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
   });
 
   it("rejects missing and blank API keys", () => {
-    expect(() => new FmpClient(undefined)).toThrow("FMP_API_KEY is required");
+    vi.stubEnv("FMP_API_KEY", "");
+
+    expect(() => new FmpClient()).toThrow("FMP_API_KEY is required");
     expect(() => new FmpClient("   ")).toThrow("FMP_API_KEY is required");
   });
 

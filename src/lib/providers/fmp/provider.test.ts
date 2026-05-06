@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type { FmpClient } from "./client";
 import { FmpProvider } from "./provider";
 
-const createProvider = (get: ReturnType<typeof vi.fn>) =>
-  new FmpProvider({ get } as unknown as FmpClient);
+type FmpProviderGet = (
+  path: string,
+  params?: Record<string, string | number | undefined>
+) => Promise<unknown>;
+
+const createProvider = (get: FmpProviderGet) => new FmpProvider({ get });
 
 describe("FmpProvider", () => {
   it("does not call the client for empty quote requests", async () => {
