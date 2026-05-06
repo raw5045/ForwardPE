@@ -121,7 +121,7 @@ ntm_eps = EPS_estimate_Q2 + EPS_estimate_Q3 + EPS_estimate_Q4 + EPS_estimate_Q1
 
 This works best when FMP provides clean quarterly estimates for the stock. The app should store the four fiscal periods used so the number can be audited later.
 
-The fiscal-year interpolation fallback exists because some symbols may have annual estimates but incomplete quarterly estimates. In that case, the app estimates NTM EPS by blending the remaining portion of the current fiscal year with the beginning portion of the next fiscal year.
+The fiscal-year interpolation fallback exists because some symbols may have annual estimates but incomplete quarterly estimates. In that case, the app estimates NTM EPS by blending FY1 and FY2 estimates based on how much of the next twelve months falls before and after the current fiscal year end.
 
 Conceptually:
 
@@ -131,7 +131,7 @@ next_fy_weight = 1 - remaining_current_fy_weight
 ntm_eps = (current_fy_eps * remaining_current_fy_weight) + (next_fy_eps * next_fy_weight)
 ```
 
-When actual quarterly EPS is available for already-reported quarters in the current fiscal year, the app should subtract those actuals from the current fiscal-year estimate before weighting the remaining current-year portion. This keeps the fallback from double-counting quarters that have already happened.
+This fallback does not mix actual reported quarterly EPS into the formula in the first implementation. Actuals may be used to determine which quarters are already reported, but not to adjust the annual interpolation unless a later methodology explicitly supports that. This avoids accidental precision when only annual consensus estimates are available and the business has seasonal earnings.
 
 The interpolation method is less precise than the next-four-quarter method, so it should be displayed and stored with a lower-confidence method flag.
 
