@@ -37,6 +37,7 @@ function unavailable(
   input: StockValuationInput,
   reason: UnavailableReason,
   fallbackReason?: "missing_quarterly_estimates",
+  includedEstimates = input.estimates,
 ): StockValuationResult {
   return {
     symbol: input.symbol,
@@ -46,7 +47,7 @@ function unavailable(
     earningsYield: null,
     forwardPe: null,
     estimatePeriods: [],
-    analystCount: averageAnalystCount(input.estimates),
+    analystCount: averageAnalystCount(includedEstimates),
     fallbackReason,
     unavailableReason: reason,
   };
@@ -100,7 +101,12 @@ export function calculateStockValuation(
     );
 
     if (ntmEps <= 0) {
-      return unavailable(input, "non_positive_ntm_eps");
+      return unavailable(
+        input,
+        "non_positive_ntm_eps",
+        undefined,
+        quarterlyEstimates,
+      );
     }
 
     return valuationResult(
@@ -149,6 +155,7 @@ export function calculateStockValuation(
       input,
       "non_positive_ntm_eps",
       "missing_quarterly_estimates",
+      annualEstimates,
     );
   }
 

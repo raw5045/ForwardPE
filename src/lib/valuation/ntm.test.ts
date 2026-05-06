@@ -136,4 +136,52 @@ describe("calculateStockValuation", () => {
     expect(result.method).toBe("unavailable");
     expect(result.unavailableReason).toBe("non_positive_ntm_eps");
   });
+
+  it("uses included fallback annual rows for unavailable analyst count", () => {
+    const result = calculateStockValuation({
+      symbol: "LOSS",
+      valuationDate: "2026-05-06",
+      price: 40,
+      fiscalYearEndMonth: 12,
+      estimates: [
+        {
+          periodType: "quarter",
+          fiscalYear: 2026,
+          fiscalQuarter: 2,
+          periodEndDate: "2026-06-30",
+          epsAvg: null,
+          analystCount: 99,
+          reported: false,
+        },
+        {
+          periodType: "annual",
+          fiscalYear: 2026,
+          periodEndDate: "2026-12-31",
+          epsAvg: -1,
+          analystCount: 3,
+          reported: false,
+        },
+        {
+          periodType: "annual",
+          fiscalYear: 2027,
+          periodEndDate: "2027-12-31",
+          epsAvg: -0.5,
+          analystCount: 5,
+          reported: false,
+        },
+        {
+          periodType: "annual",
+          fiscalYear: 2028,
+          periodEndDate: "2028-12-31",
+          epsAvg: 20,
+          analystCount: 80,
+          reported: false,
+        },
+      ],
+    });
+
+    expect(result.method).toBe("unavailable");
+    expect(result.unavailableReason).toBe("non_positive_ntm_eps");
+    expect(result.analystCount).toBe(4);
+  });
 });
