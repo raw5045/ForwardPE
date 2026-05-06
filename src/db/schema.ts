@@ -107,7 +107,7 @@ export const estimateSnapshots = pgTable(
     snapshotDate: date("snapshot_date").notNull(),
     periodType: estimatePeriodTypeEnum("period_type").notNull(),
     fiscalYear: integer("fiscal_year").notNull(),
-    fiscalQuarter: integer("fiscal_quarter"),
+    fiscalQuarter: integer("fiscal_quarter").default(0).notNull(),
     periodEndDate: date("period_end_date").notNull(),
     epsAvg: numeric("eps_avg"),
     epsLow: numeric("eps_low"),

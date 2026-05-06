@@ -8,6 +8,13 @@
       "when": 1778089123888,
       "tag": "0000_tan_patch",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778089549755,
+      "tag": "0001_nostalgic_omega_flight",
+      "breakpoints": true
     }
   ]
 }
