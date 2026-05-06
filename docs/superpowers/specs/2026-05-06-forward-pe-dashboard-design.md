@@ -11,7 +11,6 @@ The prototype is not a public website. No FMP-sourced or FMP-derived data should
 The first version tracks:
 
 - S&P 500 index
-- Nasdaq Composite
 - Nasdaq-100 / NDX
 - QQQ
 - Sector ETFs: XLK, XLF, XLV, XLY, XLC, XLI, XLP, XLE, XLU, XLB, XLRE
@@ -110,7 +109,53 @@ NTM EPS calculation priority:
 2. Fall back to interpolation between current fiscal year and next fiscal year EPS estimates when quarterly data is incomplete.
 3. Mark the valuation as unavailable when neither method has enough usable data.
 
-Each computed value stores the method used, the source provider, and enough metadata to audit why a number exists or is missing.
+The preferred method is the next-four-quarter sum because it most directly answers the NTM question. For a valuation date, the app selects the four upcoming fiscal quarters whose reporting periods have not yet been reported as of that date. It then sums the consensus EPS estimate for those four quarters.
+
+Example:
+
+```text
+valuation date = 2026-05-06
+next four unreported quarters = 2026 Q2, 2026 Q3, 2026 Q4, 2027 Q1
+ntm_eps = EPS_estimate_Q2 + EPS_estimate_Q3 + EPS_estimate_Q4 + EPS_estimate_Q1
+```
+
+This works best when FMP provides clean quarterly estimates for the stock. The app should store the four fiscal periods used so the number can be audited later.
+
+The fiscal-year interpolation fallback exists because some symbols may have annual estimates but incomplete quarterly estimates. In that case, the app estimates NTM EPS by blending the remaining portion of the current fiscal year with the beginning portion of the next fiscal year.
+
+Conceptually:
+
+```text
+remaining_current_fy_weight = months remaining in current fiscal year / 12
+next_fy_weight = 1 - remaining_current_fy_weight
+ntm_eps = (current_fy_eps * remaining_current_fy_weight) + (next_fy_eps * next_fy_weight)
+```
+
+When actual quarterly EPS is available for already-reported quarters in the current fiscal year, the app should subtract those actuals from the current fiscal-year estimate before weighting the remaining current-year portion. This keeps the fallback from double-counting quarters that have already happened.
+
+The interpolation method is less precise than the next-four-quarter method, so it should be displayed and stored with a lower-confidence method flag.
+
+Each computed stock valuation stores:
+
+- valuation date
+- source provider
+- method: `quarterly_sum`, `fiscal_year_interpolation`, or `unavailable`
+- price used
+- NTM EPS used
+- forward P/E result
+- estimate periods used
+- estimate publication or snapshot date when available
+- analyst count when available
+- fallback reason when quarterly estimates were not used
+- unavailable reason when no value can be calculated
+
+Unavailable reasons should be explicit, for example:
+
+- `missing_price`
+- `missing_quarterly_estimates`
+- `missing_annual_estimates`
+- `non_positive_ntm_eps`
+- `stale_estimates`
 
 For ETFs and indexes:
 
@@ -129,8 +174,6 @@ Aggregate records should also store:
 - `covered_constituent_count`
 - `method`
 - `source`
-
-Nasdaq Composite may initially have limited or proxy coverage if reliable constituent weights are not available through FMP. The app should label this clearly in the admin/data-health UI and in the instrument detail page.
 
 ## User Interface
 
@@ -244,7 +287,5 @@ The first version will not:
 - Display FMP-derived data publicly.
 - Provide a public API.
 - Build billing, subscriptions, or user accounts beyond private access.
-- Guarantee full Nasdaq Composite valuation coverage if reliable weights are unavailable.
 - Reconstruct historical point-in-time forward P/E without licensed historical estimate data.
 - Build a SEC/company-guidance-derived public model in the first implementation pass.
-
