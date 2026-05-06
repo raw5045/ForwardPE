@@ -53,3 +53,35 @@ export type StockValuationResult =
       fallbackReason?: "missing_quarterly_estimates";
       unavailableReason: UnavailableReason;
     };
+
+export type AggregateConstituentInput = {
+  symbol: string;
+  weight: number;
+  price: number | null;
+  ntmEps: number | null;
+  method: ValuationMethod;
+};
+
+export type AggregateValuationInput = {
+  symbol: string;
+  valuationDate: string;
+  constituents: AggregateConstituentInput[];
+};
+
+export type AggregateValuationResult = {
+  symbol: string;
+  valuationDate: string;
+  method: "aggregate";
+  forwardPe: number | null;
+  earningsYield: number | null;
+  coveredWeight: number;
+  missingWeight: number;
+  quarterlySumWeight: number;
+  fiscalYearInterpolationWeight: number;
+  unavailableWeight: number;
+  constituentCount: number;
+  coveredConstituentCount: number;
+  quarterlySumCount: number;
+  fiscalYearInterpolationCount: number;
+  unavailableCount: number;
+};
