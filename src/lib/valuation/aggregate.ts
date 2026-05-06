@@ -24,10 +24,20 @@ export function calculateAggregateValuation(
     const { method, ntmEps, price, weight } = constituent;
     const hasUsableWeight = isPositiveFinite(weight);
 
-    if (method === "unavailable") {
-      unavailableCount += 1;
-      if (hasUsableWeight) {
+    if (hasUsableWeight) {
+      if (method === "quarterly_sum") {
+        quarterlySumWeight += weight;
+        quarterlySumCount += 1;
+      }
+
+      if (method === "fiscal_year_interpolation") {
+        fiscalYearInterpolationWeight += weight;
+        fiscalYearInterpolationCount += 1;
+      }
+
+      if (method === "unavailable") {
         unavailableWeight += weight;
+        unavailableCount += 1;
       }
     }
 
@@ -40,6 +50,10 @@ export function calculateAggregateValuation(
     if (!hasUsableValuation) {
       if (hasUsableWeight) {
         missingWeight += weight;
+        if (method !== "unavailable") {
+          unavailableWeight += weight;
+          unavailableCount += 1;
+        }
       }
       continue;
     }
@@ -47,22 +61,14 @@ export function calculateAggregateValuation(
     const constituentEarningsYield = ntmEps / price;
     if (!isPositiveFinite(constituentEarningsYield)) {
       missingWeight += weight;
+      unavailableWeight += weight;
+      unavailableCount += 1;
       continue;
     }
 
     earningsYield += weight * constituentEarningsYield;
     coveredWeight += weight;
     coveredConstituentCount += 1;
-
-    if (method === "quarterly_sum") {
-      quarterlySumWeight += weight;
-      quarterlySumCount += 1;
-    }
-
-    if (method === "fiscal_year_interpolation") {
-      fiscalYearInterpolationWeight += weight;
-      fiscalYearInterpolationCount += 1;
-    }
   }
 
   const hasAggregateEarningsYield = isPositiveFinite(earningsYield);

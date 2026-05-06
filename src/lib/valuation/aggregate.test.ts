@@ -67,7 +67,7 @@ describe("calculateAggregateValuation", () => {
     expect(result.forwardPe).toBeCloseTo(28.57143, 5);
   });
 
-  it("treats non-finite and non-positive usable values as missing without polluting earnings yield", () => {
+  it("counts unusable positive-weight rows as unavailable while preserving declared method coverage", () => {
     const result = calculateAggregateValuation({
       symbol: "SP500",
       valuationDate: "2026-05-06",
@@ -101,6 +101,20 @@ describe("calculateAggregateValuation", () => {
           method: "fiscal_year_interpolation",
         },
         {
+          symbol: "NEGATIVE_WEIGHT",
+          weight: -0.1,
+          price: Number.NaN,
+          ntmEps: 5,
+          method: "quarterly_sum",
+        },
+        {
+          symbol: "INFINITE_WEIGHT",
+          weight: Number.POSITIVE_INFINITY,
+          price: 100,
+          ntmEps: null,
+          method: "unavailable",
+        },
+        {
           symbol: "UNAVAILABLE",
           weight: 0.1,
           price: 100,
@@ -114,13 +128,13 @@ describe("calculateAggregateValuation", () => {
     expect(result.forwardPe).toBeCloseTo(40, 5);
     expect(result.coveredWeight).toBeCloseTo(0.5, 5);
     expect(result.missingWeight).toBeCloseTo(0.5, 5);
-    expect(result.quarterlySumWeight).toBeCloseTo(0.5, 5);
-    expect(result.fiscalYearInterpolationWeight).toBeCloseTo(0, 5);
-    expect(result.unavailableWeight).toBeCloseTo(0.1, 5);
+    expect(result.quarterlySumWeight).toBeCloseTo(0.7, 5);
+    expect(result.fiscalYearInterpolationWeight).toBeCloseTo(0.2, 5);
+    expect(result.unavailableWeight).toBeCloseTo(0.5, 5);
     expect(result.coveredConstituentCount).toBe(1);
-    expect(result.quarterlySumCount).toBe(1);
-    expect(result.fiscalYearInterpolationCount).toBe(0);
-    expect(result.unavailableCount).toBe(1);
+    expect(result.quarterlySumCount).toBe(2);
+    expect(result.fiscalYearInterpolationCount).toBe(1);
+    expect(result.unavailableCount).toBe(3);
   });
 
   it("returns null valuation metrics when no constituents have positive earnings yield", () => {
