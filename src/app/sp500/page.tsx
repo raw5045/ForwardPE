@@ -1,11 +1,10 @@
-import Link from "next/link";
 import { DataTable } from "@/components/data-table";
-import { MethodMix } from "@/components/method-mix";
 import { MetricCard } from "@/components/metric-card";
 import {
-  getOverviewRows,
+  getSp500Rows,
   type DashboardInstrumentRow
 } from "@/lib/queries/dashboard";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -32,59 +31,60 @@ function formatPe(value: number | null) {
   return value == null ? "n/a" : `${formatNumber(value, 1)}x`;
 }
 
-function formatPercent(value: number | null) {
-  return value == null ? "n/a" : `${Math.round(value * 100)}%`;
-}
-
 function formatMethod(value: string) {
   return value.replaceAll("_", " ");
 }
 
-function latestSnapshot(rows: DashboardInstrumentRow[]) {
-  return rows
-    .map((row) => row.snapshotDate)
-    .filter((date): date is string => Boolean(date))
-    .sort()
-    .at(-1);
+function medianForwardPe(rows: DashboardInstrumentRow[]) {
+  const values = rows
+    .map((row) => row.forwardPe)
+    .filter((value): value is number => value != null)
+    .sort((left, right) => left - right);
+
+  if (values.length === 0) {
+    return null;
+  }
+
+  const middle = Math.floor(values.length / 2);
+  return values.length % 2 === 0
+    ? (values[middle - 1] + values[middle]) / 2
+    : values[middle];
 }
 
-export default async function HomePage() {
-  const rows = await getOverviewRows();
-  const sp500 = rows.find((row) => row.symbol === "SP500");
-  const ndx = rows.find((row) => row.symbol === "NDX");
-  const latestDate = latestSnapshot(rows);
+export default async function Sp500Page() {
+  const rows = await getSp500Rows();
+  const pricedRows = rows.filter((row) => row.forwardPe != null).length;
 
   return (
     <main className="page-shell flow">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Internal dashboard</p>
-          <h1>Forward P/E Overview</h1>
+          <p className="eyebrow">Constituent screener</p>
+          <h1>S&P 500</h1>
         </div>
-        <div className="header-meta">{latestDate ?? "No snapshots"}</div>
+        <div className="header-meta">
+          {rows[0]?.snapshotDate ?? "No snapshots"}
+        </div>
       </div>
 
       <div className="metric-grid">
         <MetricCard
-          label="S&P 500 Forward P/E"
-          value={formatPe(sp500?.forwardPe ?? null)}
-          detail={`${formatPercent(sp500?.coveredWeight ?? null)} covered weight`}
-        />
-        <MetricCard
-          label="Nasdaq-100 Forward P/E"
-          value={formatPe(ndx?.forwardPe ?? null)}
-          detail={ndx?.snapshotDate ?? "No snapshot"}
-        />
-        <MetricCard
-          label="Tracked Views"
+          label="Constituents"
           value={rows.length.toLocaleString("en-US")}
-          detail="Indexes and sector ETFs"
+        />
+        <MetricCard
+          label="With Forward P/E"
+          value={pricedRows.toLocaleString("en-US")}
+        />
+        <MetricCard
+          label="Median Forward P/E"
+          value={formatPe(medianForwardPe(rows))}
         />
       </div>
 
       <section className="dashboard-section flow">
         <div className="section-heading">
-          <h2>Coverage Summary</h2>
+          <h2>Stock Valuations</h2>
         </div>
         {rows.length > 0 ? (
           <DataTable
@@ -95,12 +95,11 @@ export default async function HomePage() {
                 key: "symbol",
                 header: "Symbol",
                 render: (row) => (
-                  <Link className="symbol-link" href={`/instruments/${row.symbol}`}>
+                  <Link className="symbol-link" href={`/stocks/${row.symbol}`}>
                     {row.symbol}
                   </Link>
                 )
               },
-              { key: "name", header: "Name", render: (row) => row.name },
               {
                 key: "price",
                 header: "Price",
@@ -123,17 +122,6 @@ export default async function HomePage() {
                 )
               },
               {
-                key: "methodMix",
-                header: "Method Mix",
-                render: (row) => (
-                  <MethodMix
-                    quarterlyWeight={row.quarterlySumWeight}
-                    fallbackWeight={row.fiscalYearInterpolationWeight}
-                    unavailableWeight={row.unavailableWeight}
-                  />
-                )
-              },
-              {
                 key: "method",
                 header: "Method",
                 render: (row) => (
@@ -142,13 +130,13 @@ export default async function HomePage() {
               },
               {
                 key: "snapshotDate",
-                header: "Snapshot",
+                header: "Snapshot Date",
                 render: (row) => row.snapshotDate ?? "n/a"
               }
             ]}
           />
         ) : (
-          <div className="empty-state">No overview rows available.</div>
+          <div className="empty-state">No S&P 500 constituent rows available.</div>
         )}
       </section>
     </main>
