@@ -208,4 +208,43 @@ describe("dashboard queries", () => {
       },
     ]);
   });
+
+  it("keeps current SP500 members with missing valuations as unavailable rows", async () => {
+    mocks.execute.mockResolvedValueOnce([
+      {
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        type: "stock",
+        price: null,
+        ntmEps: null,
+        forwardPe: null,
+        method: null,
+        coveredWeight: null,
+        quarterlySumWeight: null,
+        fiscalYearInterpolationWeight: null,
+        unavailableWeight: null,
+        snapshotDate: null,
+      },
+    ]);
+
+    await expect(getSp500Rows()).resolves.toEqual([
+      {
+        symbol: "AAPL",
+        name: "Apple Inc.",
+        type: "stock",
+        price: null,
+        ntmEps: null,
+        forwardPe: null,
+        method: "unavailable",
+        coveredWeight: null,
+        quarterlySumWeight: null,
+        fiscalYearInterpolationWeight: null,
+        unavailableWeight: null,
+        snapshotDate: null,
+      },
+    ]);
+
+    const statementText = sqlText(mocks.execute.mock.calls[0]?.[0]);
+    expect(statementText).toContain("left join latest_valuations");
+  });
 });

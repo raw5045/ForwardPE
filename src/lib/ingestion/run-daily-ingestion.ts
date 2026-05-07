@@ -17,6 +17,9 @@ type RunDailyIngestionInput = {
 };
 
 const sp500MembershipSource = "fmp_spy_holdings_proxy";
+const etfHoldingSource = "fmp_etf_holdings";
+const ndxProxySource = "fmp_qqq_holdings_proxy";
+const valuationSource = "fmp_consensus_ntm_private";
 const missingSp500WeightError =
   "SP500: no positive SPY holding weights available for aggregate";
 const missingSp500ConstituentsError =
@@ -46,6 +49,8 @@ function providerEstimateToInput(
     periodEndDate: estimate.periodEndDate,
     epsAvg: estimate.epsAvg,
     analystCount: estimate.analystCount,
+    // FMP does not currently provide the actual report date here, so
+    // reported/unreported status uses period end as an explicit proxy.
     reported: estimate.periodEndDate < valuationDate,
   };
 }
@@ -72,6 +77,30 @@ function membershipRaw(
         }
       : null,
   };
+}
+
+function holdingCompositionRaw(parentSymbol: string, holding: ProviderHolding) {
+  return {
+    holding: {
+      source: etfHoldingSource,
+      parentSymbol,
+      raw: holding.raw,
+    },
+  };
+}
+
+function ndxProxyCompositionRaw(holding: ProviderHolding) {
+  return {
+    proxy: {
+      source: etfHoldingSource,
+      parentSymbol: "QQQ",
+      raw: holding.raw,
+    },
+  };
+}
+
+function positiveHoldings(holdings: ProviderHolding[]) {
+  return holdings.filter((holding) => isPositiveFiniteNumber(holding.weight));
 }
 
 export async function runDailyIngestion(
@@ -122,8 +151,53 @@ export async function runDailyIngestion(
       });
     }
 
-    const symbols = sp500Constituents.map((constituent) => constituent.symbol);
-    const quoteSymbols = uniqueSymbols([...symbols, "QQQ", ...sectorEtfs]);
+    const etfHoldingSymbols = ["QQQ", ...sectorEtfs];
+    const holdingsByParent = new Map<string, ProviderHolding[]>();
+    for (const parentSymbol of etfHoldingSymbols) {
+      holdingsByParent.set(
+        parentSymbol,
+        positiveHoldings(await input.provider.getEtfHoldings(parentSymbol)),
+      );
+    }
+
+    const qqqHoldings = holdingsByParent.get("QQQ") ?? [];
+    for (const [parentSymbol, holdings] of holdingsByParent) {
+      for (const holding of holdings) {
+        await input.repository.upsertInstrument({
+          symbol: holding.symbol,
+          name: holding.name ?? holding.symbol,
+          type: "stock",
+          active: true,
+        });
+        await input.repository.upsertCompositionSnapshot({
+          parentSymbol,
+          childSymbol: holding.symbol,
+          snapshotDate: input.runDate,
+          weight: holding.weight,
+          source: etfHoldingSource,
+          raw: holdingCompositionRaw(parentSymbol, holding),
+        });
+      }
+    }
+
+    for (const holding of qqqHoldings) {
+      await input.repository.upsertCompositionSnapshot({
+        parentSymbol: "NDX",
+        childSymbol: holding.symbol,
+        snapshotDate: input.runDate,
+        weight: holding.weight,
+        source: ndxProxySource,
+        raw: ndxProxyCompositionRaw(holding),
+      });
+    }
+
+    const stockSymbols = uniqueSymbols([
+      ...sp500Constituents.map((constituent) => constituent.symbol),
+      ...Array.from(holdingsByParent.values()).flatMap((holdings) =>
+        holdings.map((holding) => holding.symbol),
+      ),
+    ]);
+    const quoteSymbols = uniqueSymbols([...stockSymbols, "QQQ", ...sectorEtfs]);
     const quotes = await input.provider.getQuotes(quoteSymbols);
     const quoteBySymbol = new Map(
       quotes.map((quote) => [quote.symbol, quote]),
@@ -139,7 +213,7 @@ export async function runDailyIngestion(
       });
     }
 
-    for (const symbol of symbols) {
+    for (const symbol of stockSymbols) {
       try {
         const quarterly = await input.provider.getEstimates(symbol, "quarter");
         const annual = await input.provider.getEstimates(symbol, "annual");
@@ -168,7 +242,7 @@ export async function runDailyIngestion(
           symbol,
           snapshotDate: input.runDate,
           valuation,
-          source: "fmp_consensus_ntm_private",
+          source: valuationSource,
         });
         symbolsProcessed += 1;
       } catch (error) {
@@ -177,6 +251,44 @@ export async function runDailyIngestion(
         );
       }
     }
+
+    const latestStockValuations =
+      await input.repository.getLatestStockValuations(
+        input.runDate,
+        stockSymbols,
+      );
+    const valuationBySymbol = new Map(
+      latestStockValuations.map((row) => [row.symbol, row]),
+    );
+
+    const writeAggregateValuation = async (
+      symbol: string,
+      holdings: Array<{ symbol: string; weight: number }>,
+    ) => {
+      if (!holdings.some((holding) => isPositiveFiniteNumber(holding.weight))) {
+        return;
+      }
+
+      const aggregate = calculateAggregateValuation({
+        symbol,
+        valuationDate: input.runDate,
+        constituents: holdings.map((holding) => ({
+          symbol: holding.symbol,
+          weight: holding.weight,
+          price: valuationBySymbol.get(holding.symbol)?.price ?? null,
+          ntmEps: valuationBySymbol.get(holding.symbol)?.ntmEps ?? null,
+          method:
+            valuationBySymbol.get(holding.symbol)?.method ?? "unavailable",
+        })),
+      });
+
+      await input.repository.upsertValuationSnapshot({
+        symbol,
+        snapshotDate: input.runDate,
+        valuation: aggregate,
+        source: valuationSource,
+      });
+    };
 
     if (hasCurrentSp500Constituents) {
       const latestConstituents =
@@ -188,13 +300,6 @@ export async function runDailyIngestion(
       if (!hasPositiveSp500Weight) {
         errors.push(missingSp500WeightError);
       } else {
-        const stockValuations = await input.repository.getLatestStockValuations(
-          input.runDate,
-          latestConstituents.map((row) => row.symbol),
-        );
-        const valuationBySymbol = new Map(
-          stockValuations.map((row) => [row.symbol, row]),
-        );
         const aggregate = calculateAggregateValuation({
           symbol: "SP500",
           valuationDate: input.runDate,
@@ -211,9 +316,15 @@ export async function runDailyIngestion(
           symbol: "SP500",
           snapshotDate: input.runDate,
           valuation: aggregate,
-          source: "fmp_consensus_ntm_private",
+          source: valuationSource,
         });
       }
+    }
+
+    await writeAggregateValuation("QQQ", qqqHoldings);
+    await writeAggregateValuation("NDX", qqqHoldings);
+    for (const symbol of sectorEtfs) {
+      await writeAggregateValuation(symbol, holdingsByParent.get(symbol) ?? []);
     }
 
     const status = errors.length === 0 ? "succeeded" : "partial";

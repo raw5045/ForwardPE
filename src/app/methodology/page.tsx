@@ -8,7 +8,9 @@ export default function MethodologyPage() {
           The primary method sums the next four unreported quarterly EPS
           consensus estimates. When those estimates are incomplete, the
           fallback blends FY1 and FY2 consensus estimates based on the current
-          fiscal-year calendar.
+          fiscal-year calendar. Reported/unreported status currently uses the
+          estimate period end date as a proxy until actual report dates are
+          ingested.
         </p>
       </section>
       <section>

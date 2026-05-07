@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { IngestionProvider, IngestionRepository } from "./types";
 import { runDailyIngestion } from "./run-daily-ingestion";
+import { sectorEtfs } from "../universe/defaults";
 
 describe("runDailyIngestion", () => {
   it("records stock valuations and aggregate method coverage from providers", async () => {
@@ -226,7 +227,7 @@ describe("runDailyIngestion", () => {
     expect(events.indexOf("instrument:QQQ")).toBeLessThan(
       events.indexOf("price:QQQ"),
     );
-    expect(requestedHoldingsSymbols).toEqual(["SPY"]);
+    expect(requestedHoldingsSymbols).toEqual(["SPY", "QQQ", ...sectorEtfs]);
     const sp500MembershipWrites = membershipWrites.filter(
       (write) => write.groupSlug === "sp500",
     );
@@ -303,6 +304,237 @@ describe("runDailyIngestion", () => {
     expect(aggregateWrite.valuation.fiscalYearInterpolationCount).toBe(1);
     expect(aggregateWrite.valuation.unavailableCount).toBe(0);
     expect(aggregateWrite.valuation.constituentCount).toBe(2);
+  });
+
+  it("writes QQQ, NDX, and sector ETF aggregates from ETF holdings and values non-SP500 stocks", async () => {
+    const requestedHoldingsSymbols: string[] = [];
+    const quoteRequests: string[][] = [];
+    const instrumentWrites: Array<
+      Parameters<IngestionRepository["upsertInstrument"]>[0]
+    > = [];
+    const compositionWrites: Array<
+      Parameters<IngestionRepository["upsertCompositionSnapshot"]>[0]
+    > = [];
+    const membershipWrites: Array<
+      Parameters<IngestionRepository["upsertGroupMembership"]>[0]
+    > = [];
+    const valuationWrites: Array<
+      Parameters<IngestionRepository["upsertValuationSnapshot"]>[0]
+    > = [];
+    const eventOrder: string[] = [];
+    const repository: IngestionRepository = {
+      startIngestionRun: async () => "run-1",
+      finishIngestionRun: async () => {},
+      failIngestionRun: async () => {
+        throw new Error("Expected ingestion to finish, not fail");
+      },
+      upsertInstrument: async (input) => {
+        instrumentWrites.push(input);
+        eventOrder.push(`instrument:${input.symbol}`);
+      },
+      upsertGroup: async () => {},
+      upsertGroupMembership: async (input) => {
+        membershipWrites.push(input);
+      },
+      upsertPriceSnapshot: async () => {},
+      upsertEstimateSnapshot: async () => {},
+      upsertCompositionSnapshot: async (input) => {
+        compositionWrites.push(input);
+        eventOrder.push(`composition:${input.parentSymbol}:${input.childSymbol}`);
+      },
+      upsertValuationSnapshot: async (input) => {
+        valuationWrites.push(input);
+        eventOrder.push(`valuation:${input.symbol}`);
+      },
+      getLatestGroupConstituents: async () =>
+        membershipWrites
+          .filter((write) => write.groupSlug === "sp500")
+          .map((write) => ({
+            symbol: write.symbol,
+            weight: write.weight ?? 0,
+          })),
+      getLatestStockValuations: async (_snapshotDate, symbols) =>
+        valuationWrites
+          .filter((write) => symbols.includes(write.symbol))
+          .flatMap((write) =>
+            write.valuation.method === "aggregate"
+              ? []
+              : [
+                  {
+                    symbol: write.symbol,
+                    price: write.valuation.price,
+                    ntmEps: write.valuation.ntmEps,
+                    method: write.valuation.method,
+                  },
+                ],
+          ),
+    };
+    const provider: IngestionProvider = {
+      getSp500Constituents: async () => [
+        { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", raw: {} },
+      ],
+      getEtfHoldings: async (symbol) => {
+        requestedHoldingsSymbols.push(symbol);
+
+        if (symbol === "SPY") {
+          return [
+            {
+              symbol: "AAPL",
+              name: "Apple Inc.",
+              weight: 1,
+              raw: { asset: "AAPL", weightPercentage: 100 },
+            },
+          ];
+        }
+
+        return [
+          {
+            symbol: "NVDA",
+            name: "NVIDIA Corp.",
+            weight: 1,
+            raw: { asset: "NVDA", weightPercentage: 100, parent: symbol },
+          },
+        ];
+      },
+      getQuotes: async (symbols) => {
+        quoteRequests.push(symbols);
+
+        return symbols.map((symbol) => ({
+          symbol,
+          price: 100,
+          raw: {},
+        }));
+      },
+      getEstimates: async (symbol: string, period: "annual" | "quarter") =>
+        period === "quarter"
+          ? [
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 2,
+                periodEndDate: "2026-06-30",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 3,
+                periodEndDate: "2026-09-30",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 4,
+                periodEndDate: "2026-12-31",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2027,
+                fiscalQuarter: 1,
+                periodEndDate: "2027-03-31",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+            ]
+          : [],
+    };
+
+    const result = await runDailyIngestion({
+      repository,
+      provider,
+      runDate: "2026-05-06",
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.symbolsProcessed).toBe(2);
+    expect(requestedHoldingsSymbols).toEqual(["SPY", "QQQ", ...sectorEtfs]);
+    expect(quoteRequests[0]).toEqual(
+      expect.arrayContaining(["AAPL", "NVDA", "QQQ", "XLK"]),
+    );
+    expect(instrumentWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          symbol: "NVDA",
+          name: "NVIDIA Corp.",
+          type: "stock",
+        }),
+      ]),
+    );
+    expect(compositionWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          parentSymbol: "QQQ",
+          childSymbol: "NVDA",
+          source: "fmp_etf_holdings",
+        }),
+        expect.objectContaining({
+          parentSymbol: "NDX",
+          childSymbol: "NVDA",
+          source: "fmp_qqq_holdings_proxy",
+          raw: expect.objectContaining({
+            proxy: expect.objectContaining({
+              source: "fmp_etf_holdings",
+              parentSymbol: "QQQ",
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          parentSymbol: "XLK",
+          childSymbol: "NVDA",
+          source: "fmp_etf_holdings",
+        }),
+      ]),
+    );
+
+    for (const symbol of ["QQQ", "NDX", "XLK"]) {
+      const aggregateWrite = valuationWrites.find(
+        (write) => write.symbol === symbol,
+      );
+      expect(aggregateWrite).toMatchObject({
+        snapshotDate: "2026-05-06",
+        source: "fmp_consensus_ntm_private",
+        valuation: expect.objectContaining({
+          method: "aggregate",
+          coveredWeight: 1,
+        }),
+      });
+    }
+
+    const nvdaValuation = valuationWrites.find(
+      (write) => write.symbol === "NVDA",
+    );
+    expect(nvdaValuation).toMatchObject({
+      source: "fmp_consensus_ntm_private",
+      valuation: expect.objectContaining({
+        method: "quarterly_sum",
+        price: 100,
+        ntmEps: 4,
+      }),
+    });
+    expect(eventOrder.indexOf("composition:QQQ:NVDA")).toBeLessThan(
+      eventOrder.indexOf("valuation:QQQ"),
+    );
   });
 
   it("marks the run partial when SP500 has no positive stored weights", async () => {

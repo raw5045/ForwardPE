@@ -102,7 +102,7 @@ function mapDashboardInstrumentRow(
     price: toNullableNumber(row.price),
     ntmEps: toNullableNumber(row.ntmEps),
     forwardPe: toNullableNumber(row.forwardPe),
-    method: String(row.method),
+    method: row.method == null ? "unavailable" : String(row.method),
     coveredWeight: toNullableNumber(row.coveredWeight),
     quarterlySumWeight: toNullableNumber(row.quarterlySumWeight),
     fiscalYearInterpolationWeight: toNullableNumber(
@@ -291,7 +291,7 @@ export async function getSp500Rows(): Promise<DashboardInstrumentRow[]> {
       select ${dashboardRowSelect()}
       from latest_sp500_memberships m
       inner join instruments i on i.id = m.instrument_id
-      inner join latest_valuations v
+      left join latest_valuations v
         on v.instrument_id = i.id
        and v.row_number = 1
       where i.type = 'stock'

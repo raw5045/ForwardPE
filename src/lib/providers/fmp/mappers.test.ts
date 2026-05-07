@@ -80,6 +80,58 @@ describe("FMP mappers", () => {
     });
   });
 
+  it("maps non-calendar fiscal quarter ends using explicit fiscal quarter fields", () => {
+    expect(
+      mapFmpEstimate(
+        {
+          symbol: "WMT",
+          date: "2026-05-31",
+          fiscalQuarter: "Q2",
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toMatchObject({
+      symbol: "WMT",
+      periodType: "quarter",
+      fiscalYear: 2026,
+      fiscalQuarter: 2,
+      periodEndDate: "2026-05-31",
+      epsAvg: 2.1
+    });
+
+    expect(
+      mapFmpEstimate(
+        {
+          symbol: "COST",
+          date: "2026-08-31",
+          fiscalPeriod: "FY2026Q3",
+          estimatedEpsAvg: 4.2
+        },
+        "quarter"
+      )
+    ).toMatchObject({
+      fiscalQuarter: 3,
+      periodEndDate: "2026-08-31"
+    });
+  });
+
+  it("falls back to month-based fiscal quarter without requiring quarter-end dates", () => {
+    expect(
+      mapFmpEstimate(
+        {
+          symbol: "AAPL",
+          date: "2026-05-31",
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toMatchObject({
+      fiscalQuarter: 2,
+      periodEndDate: "2026-05-31"
+    });
+  });
+
   it("does not parse malformed estimate values as zero", () => {
     expect(
       mapFmpEstimate(
@@ -114,28 +166,30 @@ describe("FMP mappers", () => {
     ).toThrow("FMP quarter estimate for AAPL has invalid period end date");
   });
 
-  it("rejects quarterly estimates that are not quarter-end dates", () => {
+  it("rejects quarterly estimates with impossible explicit fiscal quarters", () => {
     expect(() =>
       mapFmpEstimate(
         {
           symbol: "AAPL",
-          date: "2026-02-15",
+          date: "2026-05-31",
+          quarter: "Q5",
           estimatedEpsAvg: 2.1
         },
         "quarter"
       )
-    ).toThrow("FMP quarter estimate for AAPL has invalid quarter end date");
+    ).toThrow("FMP quarter estimate for AAPL has invalid fiscal quarter");
 
     expect(() =>
       mapFmpEstimate(
         {
           symbol: "AAPL",
-          date: "2026-04-01",
+          date: "2026-05-31",
+          period: 0,
           estimatedEpsAvg: 2.1
         },
         "quarter"
       )
-    ).toThrow("FMP quarter estimate for AAPL has invalid quarter end date");
+    ).toThrow("FMP quarter estimate for AAPL has invalid fiscal quarter");
   });
 
   it("rejects estimate rows without a symbol", () => {

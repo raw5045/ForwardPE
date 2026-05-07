@@ -99,12 +99,6 @@ const parsePeriodEndDate = (row: FmpRow, symbol: string, periodType: "annual" | 
   return { fiscalYear, month, periodEndDate };
 };
 
-const isQuarterEndDate = (month: number, day: number): boolean =>
-  (month === 3 && day === 31) ||
-  (month === 6 && day === 30) ||
-  (month === 9 && day === 30) ||
-  (month === 12 && day === 31);
-
 const fiscalQuarterFromMonth = (month: number, symbol: string): number => {
   const fiscalQuarter = Math.ceil(month / 3);
 
@@ -115,6 +109,57 @@ const fiscalQuarterFromMonth = (month: number, symbol: string): number => {
   return fiscalQuarter;
 };
 
+const parseFiscalQuarterValue = (
+  value: unknown,
+  symbol: string
+): number => {
+  if (typeof value === "number") {
+    if (Number.isInteger(value) && value >= 1 && value <= 4) {
+      return value;
+    }
+
+    throw new Error(`FMP quarter estimate for ${symbol} has invalid fiscal quarter`);
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(`FMP quarter estimate for ${symbol} has invalid fiscal quarter`);
+  }
+
+  const normalizedValue = value.trim();
+  const numericMatch = /^([1-4])$/.exec(normalizedValue);
+  if (numericMatch) {
+    return Number(numericMatch[1]);
+  }
+
+  const quarterMatch = /Q(\d+)/i.exec(normalizedValue);
+  if (quarterMatch) {
+    const fiscalQuarter = Number(quarterMatch[1]);
+    if (Number.isInteger(fiscalQuarter) && fiscalQuarter >= 1 && fiscalQuarter <= 4) {
+      return fiscalQuarter;
+    }
+  }
+
+  throw new Error(`FMP quarter estimate for ${symbol} has invalid fiscal quarter`);
+};
+
+const fiscalQuarterFromRecord = (
+  record: FmpRow,
+  month: number,
+  symbol: string
+): number => {
+  const explicitQuarter =
+    record.fiscalQuarter ??
+    record.quarter ??
+    record.period ??
+    record.fiscalPeriod;
+
+  if (explicitQuarter !== null && explicitQuarter !== undefined) {
+    return parseFiscalQuarterValue(explicitQuarter, symbol);
+  }
+
+  return fiscalQuarterFromMonth(month, symbol);
+};
+
 export const mapFmpEstimate = (
   row: unknown,
   periodType: "annual" | "quarter"
@@ -123,17 +168,15 @@ export const mapFmpEstimate = (
   const record = toRecord(row);
   const symbol = requireString(record.symbol, "FMP estimate is missing symbol");
   const { fiscalYear, month, periodEndDate } = parsePeriodEndDate(record, symbol, periodType);
-  const day = Number(periodEndDate.slice(8, 10));
-
-  if (periodType === "quarter" && !isQuarterEndDate(month, day)) {
-    throw new Error(`FMP quarter estimate for ${symbol} has invalid quarter end date`);
-  }
 
   return {
     symbol,
     periodType,
     fiscalYear,
-    fiscalQuarter: periodType === "annual" ? null : fiscalQuarterFromMonth(month, symbol),
+    fiscalQuarter:
+      periodType === "annual"
+        ? null
+        : fiscalQuarterFromRecord(record, month, symbol),
     periodEndDate,
     epsAvg: toNullableFiniteNumber(record.estimatedEpsAvg),
     epsLow: toNullableFiniteNumber(record.estimatedEpsLow),

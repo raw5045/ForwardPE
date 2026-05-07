@@ -109,6 +109,10 @@ export default async function DataHealthPage() {
         <div className="section-heading">
           <h2>Latest Method Mix</h2>
         </div>
+        <p className="section-note">
+          Reported/unreported status currently uses estimate period end date as
+          a proxy until actual report dates are ingested.
+        </p>
         {methodMix.length > 0 ? (
           <DataTable
             rows={methodMix}
