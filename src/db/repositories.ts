@@ -27,6 +27,20 @@ export class ForwardPeRepository {
 
   async upsertInstrument(input: UpsertInstrumentInput): Promise<void> {
     const now = new Date();
+    const updateSet: Partial<typeof instruments.$inferInsert> = {
+      name: input.name,
+      type: input.type,
+      updatedAt: now,
+    };
+    if ("exchange" in input) {
+      updateSet.exchange = input.exchange ?? null;
+    }
+    if ("sector" in input) {
+      updateSet.sector = input.sector ?? null;
+    }
+    if ("active" in input) {
+      updateSet.active = input.active ?? true;
+    }
 
     await this.db
       .insert(instruments)
@@ -40,14 +54,7 @@ export class ForwardPeRepository {
       })
       .onConflictDoUpdate({
         target: instruments.symbol,
-        set: {
-          name: input.name,
-          type: input.type,
-          exchange: input.exchange ?? null,
-          sector: input.sector ?? null,
-          active: input.active ?? true,
-          updatedAt: now,
-        },
+        set: updateSet,
       });
   }
 
