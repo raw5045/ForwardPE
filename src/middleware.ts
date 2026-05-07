@@ -1,17 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthorizedRequest } from "./lib/auth/internal";
 
-export function isAuthorizedRequest(
-  request: Request,
-  token = process.env.INTERNAL_ACCESS_TOKEN
-) {
-  const normalizedToken = token?.trim();
-
-  if (!normalizedToken) {
-    return true;
-  }
-
-  return request.headers.get("authorization") === `Bearer ${normalizedToken}`;
-}
+export { isAuthorizedRequest };
 
 export function middleware(request: NextRequest) {
   if (isAuthorizedRequest(request)) {
