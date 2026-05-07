@@ -74,6 +74,7 @@ export default async function DataHealthPage() {
         {runs.length > 0 ? (
           <DataTable
             rows={runs}
+            caption="Recent ingestion runs"
             getRowKey={(row) => row.id}
             columns={[
               {
@@ -111,6 +112,7 @@ export default async function DataHealthPage() {
         {methodMix.length > 0 ? (
           <DataTable
             rows={methodMix}
+            caption="Latest aggregate NTM EPS method mix"
             getRowKey={(row) => `${row.symbol}-${row.snapshotDate}`}
             columns={[
               { key: "symbol", header: "Symbol", render: (row) => row.symbol },

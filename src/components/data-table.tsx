@@ -3,7 +3,9 @@ import type { ReactNode } from "react";
 export function DataTable<T>({
   rows,
   columns,
-  getRowKey
+  getRowKey,
+  caption,
+  ariaLabel
 }: {
   rows: T[];
   columns: Array<{
@@ -12,14 +14,19 @@ export function DataTable<T>({
     render: (row: T) => ReactNode;
   }>;
   getRowKey?: (row: T, index: number) => string | number;
+  caption?: string;
+  ariaLabel?: string;
 }) {
   return (
     <div className="table-wrap">
-      <table>
+      <table aria-label={caption ? undefined : ariaLabel}>
+        {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead>
           <tr>
             {columns.map((column) => (
-              <th key={column.key}>{column.header}</th>
+              <th key={column.key} scope="col">
+                {column.header}
+              </th>
             ))}
           </tr>
         </thead>

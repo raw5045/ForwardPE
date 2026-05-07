@@ -5,6 +5,7 @@ import {
   type DashboardInstrumentRow
 } from "@/lib/queries/dashboard";
 import Link from "next/link";
+import { getSnapshotDateLabel } from "./snapshot-label";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ function medianForwardPe(rows: DashboardInstrumentRow[]) {
 export default async function Sp500Page() {
   const rows = await getSp500Rows();
   const pricedRows = rows.filter((row) => row.forwardPe != null).length;
+  const snapshotDateLabel = getSnapshotDateLabel(rows);
 
   return (
     <main className="page-shell flow">
@@ -62,9 +64,7 @@ export default async function Sp500Page() {
           <p className="eyebrow">Constituent screener</p>
           <h1>S&P 500</h1>
         </div>
-        <div className="header-meta">
-          {rows[0]?.snapshotDate ?? "No snapshots"}
-        </div>
+        <div className="header-meta">{snapshotDateLabel}</div>
       </div>
 
       <div className="metric-grid">
@@ -89,6 +89,7 @@ export default async function Sp500Page() {
         {rows.length > 0 ? (
           <DataTable
             rows={rows}
+            caption="S&P 500 constituent stock valuations"
             getRowKey={(row) => row.symbol}
             columns={[
               {

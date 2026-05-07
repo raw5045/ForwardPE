@@ -89,6 +89,7 @@ export default async function HomePage() {
         {rows.length > 0 ? (
           <DataTable
             rows={rows}
+            caption="Forward P/E overview coverage summary"
             getRowKey={(row) => row.symbol}
             columns={[
               {
