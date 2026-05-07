@@ -15,6 +15,30 @@ import {
   getSp500Rows,
 } from "./dashboard";
 
+type SqlChunk = {
+  queryChunks?: unknown[];
+  value?: unknown;
+};
+
+function sqlText(chunk: unknown): string {
+  if (typeof chunk !== "object" || chunk === null) {
+    return "";
+  }
+
+  const sqlChunk = chunk as SqlChunk;
+  if (Array.isArray(sqlChunk.queryChunks)) {
+    return sqlChunk.queryChunks.map(sqlText).join("");
+  }
+
+  if (Array.isArray(sqlChunk.value)) {
+    return sqlChunk.value
+      .filter((value): value is string => typeof value === "string")
+      .join("");
+  }
+
+  return "";
+}
+
 describe("dashboard queries", () => {
   beforeEach(() => {
     mocks.createDb.mockReturnValue({ execute: mocks.execute });
@@ -56,6 +80,32 @@ describe("dashboard queries", () => {
       },
     ]);
     expect(mocks.createDb).toHaveBeenCalledTimes(1);
+  });
+
+  it("casts overview ordinals to integers in the VALUES list", async () => {
+    mocks.execute.mockResolvedValueOnce([]);
+
+    await getOverviewRows();
+
+    const statementText = sqlText(mocks.execute.mock.calls[0]?.[0]);
+    expect(statementText).toContain("cast(");
+    expect(statementText).toContain("as integer");
+  });
+
+  it("filters dashboard latest valuations to the private FMP source", async () => {
+    mocks.execute.mockResolvedValue([]);
+
+    await getOverviewRows();
+    await getInstrumentDetail("AAPL");
+    await getSp500Rows();
+
+    const statements = mocks.execute.mock.calls.map((call) => sqlText(call[0]));
+    expect(statements).toHaveLength(4);
+    for (const statementText of statements) {
+      expect(statementText).toContain(
+        "v.source = 'fmp_consensus_ntm_private'",
+      );
+    }
   });
 
   it("returns latest instrument row plus chronological history", async () => {

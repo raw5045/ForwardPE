@@ -11,6 +11,30 @@ vi.mock("../../db/client", () => ({
 
 import { getLatestMethodMix, getRecentIngestionRuns } from "./data-health";
 
+type SqlChunk = {
+  queryChunks?: unknown[];
+  value?: unknown;
+};
+
+function sqlText(chunk: unknown): string {
+  if (typeof chunk !== "object" || chunk === null) {
+    return "";
+  }
+
+  const sqlChunk = chunk as SqlChunk;
+  if (Array.isArray(sqlChunk.queryChunks)) {
+    return sqlChunk.queryChunks.map(sqlText).join("");
+  }
+
+  if (Array.isArray(sqlChunk.value)) {
+    return sqlChunk.value
+      .filter((value): value is string => typeof value === "string")
+      .join("");
+  }
+
+  return "";
+}
+
 describe("data health queries", () => {
   beforeEach(() => {
     mocks.createDb.mockReturnValue({ execute: mocks.execute });
@@ -70,5 +94,14 @@ describe("data health queries", () => {
         unavailableWeight: 0.1,
       },
     ]);
+  });
+
+  it("filters latest method mix to the private FMP source", async () => {
+    mocks.execute.mockResolvedValueOnce([]);
+
+    await getLatestMethodMix();
+
+    const statementText = sqlText(mocks.execute.mock.calls[0]?.[0]);
+    expect(statementText).toContain("v.source = 'fmp_consensus_ntm_private'");
   });
 });

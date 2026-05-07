@@ -177,6 +177,7 @@ export async function getLatestMethodMix(): Promise<MethodMixRow[]> {
           ) as row_number
         from valuation_snapshots v
         where v.method = 'aggregate'
+          and v.source = 'fmp_consensus_ntm_private'
       )
       select
         i.symbol as "symbol",

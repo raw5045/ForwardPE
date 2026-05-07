@@ -144,7 +144,9 @@ function dashboardRowSelect() {
 export async function getOverviewRows(): Promise<DashboardInstrumentRow[]> {
   const db = createDb();
   const overviewValues = sql.join(
-    overviewSymbols.map((symbol, index) => sql`(${symbol}, ${index})`),
+    overviewSymbols.map(
+      (symbol, index) => sql`(${symbol}, cast(${index} as integer))`,
+    ),
     sql`, `,
   );
   const rows = await runRows<RawDashboardInstrumentRow>(
@@ -165,6 +167,7 @@ export async function getOverviewRows(): Promise<DashboardInstrumentRow[]> {
               v.id desc
           ) as row_number
         from valuation_snapshots v
+        where v.source = 'fmp_consensus_ntm_private'
       )
       select ${dashboardRowSelect()}
       from overview_symbols o
@@ -203,6 +206,7 @@ export async function getInstrumentDetail(
               v.id desc
           ) as row_number
         from valuation_snapshots v
+        where v.source = 'fmp_consensus_ntm_private'
       )
       select ${dashboardRowSelect()}
       from instruments i
@@ -229,6 +233,7 @@ export async function getInstrumentDetail(
         from valuation_snapshots v
         inner join instruments i on i.id = v.instrument_id
         where i.symbol = ${normalizedSymbol}
+          and v.source = 'fmp_consensus_ntm_private'
       )
       select
         v.snapshot_date as "snapshotDate",
@@ -281,6 +286,7 @@ export async function getSp500Rows(): Promise<DashboardInstrumentRow[]> {
           ) as row_number
         from valuation_snapshots v
         where v.method <> 'aggregate'
+          and v.source = 'fmp_consensus_ntm_private'
       )
       select ${dashboardRowSelect()}
       from latest_sp500_memberships m
