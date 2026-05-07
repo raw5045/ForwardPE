@@ -45,4 +45,81 @@ describe("ForwardPeRepository", () => {
       },
     });
   });
+
+  it("clears stale valuation metrics and updates timestamps on valuation upsert conflicts", async () => {
+    const inserts: unknown[] = [];
+    const conflicts: unknown[] = [];
+    const db = {
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => [{ id: "instrument-1" }],
+          }),
+        }),
+      }),
+      insert: () => ({
+        values: (input: unknown) => {
+          inserts.push(input);
+          return {
+            onConflictDoUpdate: (input: unknown) => {
+              conflicts.push(input);
+            },
+          };
+        },
+      }),
+    };
+    const repository = new ForwardPeRepository(db as never);
+
+    await repository.upsertValuationSnapshot({
+      symbol: "AAPL",
+      snapshotDate: "2026-05-06",
+      source: "fmp_consensus_ntm_private",
+      valuation: {
+        symbol: "AAPL",
+        method: "quarterly_sum",
+        price: 100,
+        ntmEps: 5,
+        earningsYield: 0.05,
+        forwardPe: 20,
+        estimatePeriods: ["2026Q2", "2026Q3", "2026Q4", "2027Q1"],
+        analystCount: 12,
+      },
+    });
+
+    expect(inserts).toHaveLength(1);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toEqual({
+      target: expect.anything(),
+      set: expect.objectContaining({
+        price: "100",
+        ntmEps: "5",
+        coveredWeight: null,
+        missingWeight: null,
+        constituentCount: null,
+        updatedAt: expect.any(Date),
+      }),
+    });
+  });
+
+  it("uses equal weights for latest group constituents when stored weights are missing", async () => {
+    const query = {
+      from: () => query,
+      innerJoin: () => query,
+      where: () => query,
+      orderBy: async () => [
+        { symbol: "AAPL", weight: null, effectiveDate: "2026-05-06" },
+        { symbol: "MSFT", weight: null, effectiveDate: "2026-05-06" },
+        { symbol: "OLD", weight: "1", effectiveDate: "2026-05-05" },
+      ],
+    };
+    const db = {
+      select: () => query,
+    };
+    const repository = new ForwardPeRepository(db as never);
+
+    await expect(repository.getLatestGroupConstituents("sp500")).resolves.toEqual([
+      { symbol: "AAPL", weight: 0.5 },
+      { symbol: "MSFT", weight: 0.5 },
+    ]);
+  });
 });
