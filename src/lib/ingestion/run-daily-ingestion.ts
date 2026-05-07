@@ -24,6 +24,10 @@ const missingSp500WeightError =
   "SP500: no positive SPY holding weights available for aggregate";
 const missingSp500ConstituentsError =
   "SP500: no constituents returned from provider";
+const missingEtfHoldingError = (symbol: string) =>
+  `${symbol}: no positive ETF holding weights available for aggregate`;
+const missingNdxProxyHoldingError =
+  "NDX: no positive QQQ proxy holding weights available for aggregate";
 
 function isPositiveFiniteNumber(
   value: number | null | undefined,
@@ -264,9 +268,10 @@ export async function runDailyIngestion(
     const writeAggregateValuation = async (
       symbol: string,
       holdings: Array<{ symbol: string; weight: number }>,
+      missingHoldingError: string,
     ) => {
       if (!holdings.some((holding) => isPositiveFiniteNumber(holding.weight))) {
-        return;
+        errors.push(missingHoldingError);
       }
 
       const aggregate = calculateAggregateValuation({
@@ -321,10 +326,14 @@ export async function runDailyIngestion(
       }
     }
 
-    await writeAggregateValuation("QQQ", qqqHoldings);
-    await writeAggregateValuation("NDX", qqqHoldings);
+    await writeAggregateValuation("QQQ", qqqHoldings, missingEtfHoldingError("QQQ"));
+    await writeAggregateValuation("NDX", qqqHoldings, missingNdxProxyHoldingError);
     for (const symbol of sectorEtfs) {
-      await writeAggregateValuation(symbol, holdingsByParent.get(symbol) ?? []);
+      await writeAggregateValuation(
+        symbol,
+        holdingsByParent.get(symbol) ?? [],
+        missingEtfHoldingError(symbol),
+      );
     }
 
     const status = errors.length === 0 ? "succeeded" : "partial";

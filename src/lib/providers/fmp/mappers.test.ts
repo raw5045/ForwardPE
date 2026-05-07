@@ -111,8 +111,27 @@ describe("FMP mappers", () => {
         "quarter"
       )
     ).toMatchObject({
+      fiscalYear: 2026,
       fiscalQuarter: 3,
       periodEndDate: "2026-08-31"
+    });
+  });
+
+  it("maps fiscal year from explicit fiscal period fields", () => {
+    expect(
+      mapFmpEstimate(
+        {
+          symbol: "WMT",
+          date: "2026-11-30",
+          fiscalPeriod: "FY2027Q1",
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toMatchObject({
+      fiscalYear: 2027,
+      fiscalQuarter: 1,
+      periodEndDate: "2026-11-30"
     });
   });
 
@@ -185,6 +204,18 @@ describe("FMP mappers", () => {
           symbol: "AAPL",
           date: "2026-05-31",
           period: 0,
+          estimatedEpsAvg: 2.1
+        },
+        "quarter"
+      )
+    ).toThrow("FMP quarter estimate for AAPL has invalid fiscal quarter");
+
+    expect(() =>
+      mapFmpEstimate(
+        {
+          symbol: "AAPL",
+          date: "2026-05-31",
+          fiscalPeriod: "prefix-Q1-suffix",
           estimatedEpsAvg: 2.1
         },
         "quarter"

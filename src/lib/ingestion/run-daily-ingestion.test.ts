@@ -591,8 +591,19 @@ describe("runDailyIngestion", () => {
       getSp500Constituents: async () => [
         { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", raw: {} },
       ],
-      getEtfHoldings: async () => [],
-      getQuotes: async () => [{ symbol: "AAPL", price: 100, raw: {} }],
+      getEtfHoldings: async (symbol) =>
+        symbol === "SPY"
+          ? []
+          : [
+              {
+                symbol: "AAPL",
+                name: "Apple Inc.",
+                weight: 1,
+                raw: {},
+              },
+            ],
+      getQuotes: async (symbols) =>
+        symbols.map((symbol) => ({ symbol, price: 100, raw: {} })),
       getEstimates: async (symbol: string, period: "annual" | "quarter") =>
         period === "quarter"
           ? [
@@ -674,6 +685,173 @@ describe("runDailyIngestion", () => {
     expect(aggregateWrite).toBeUndefined();
   });
 
+  it("writes current unavailable QQQ, NDX, and sector aggregates when ETF holdings are missing", async () => {
+    const finishedRuns: unknown[] = [];
+    const membershipWrites: Array<
+      Parameters<IngestionRepository["upsertGroupMembership"]>[0]
+    > = [];
+    const valuationWrites: Array<
+      Parameters<IngestionRepository["upsertValuationSnapshot"]>[0]
+    > = [];
+    const repository: IngestionRepository = {
+      startIngestionRun: async () => "run-1",
+      finishIngestionRun: async (_runId, details) => {
+        finishedRuns.push(details);
+      },
+      failIngestionRun: async () => {
+        throw new Error("Expected ingestion to finish partial, not fail");
+      },
+      upsertInstrument: async () => {},
+      upsertGroup: async () => {},
+      upsertGroupMembership: async (input) => {
+        membershipWrites.push(input);
+      },
+      upsertPriceSnapshot: async () => {},
+      upsertEstimateSnapshot: async () => {},
+      upsertCompositionSnapshot: async () => {},
+      upsertValuationSnapshot: async (input) => {
+        valuationWrites.push(input);
+      },
+      getLatestGroupConstituents: async () =>
+        membershipWrites
+          .filter((write) => write.groupSlug === "sp500")
+          .map((write) => ({
+            symbol: write.symbol,
+            weight: write.weight ?? 0,
+          })),
+      getLatestStockValuations: async (_snapshotDate, symbols) =>
+        valuationWrites
+          .filter((write) => symbols.includes(write.symbol))
+          .flatMap((write) =>
+            write.valuation.method === "aggregate"
+              ? []
+              : [
+                  {
+                    symbol: write.symbol,
+                    price: write.valuation.price,
+                    ntmEps: write.valuation.ntmEps,
+                    method: write.valuation.method,
+                  },
+                ],
+          ),
+    };
+    const provider: IngestionProvider = {
+      getSp500Constituents: async () => [
+        { symbol: "AAPL", name: "Apple Inc.", sector: "Technology", raw: {} },
+      ],
+      getEtfHoldings: async (symbol) =>
+        symbol === "QQQ" || symbol === "XLK"
+          ? []
+          : [
+              {
+                symbol: "AAPL",
+                name: "Apple Inc.",
+                weight: 1,
+                raw: { parent: symbol },
+              },
+            ],
+      getQuotes: async (symbols) =>
+        symbols.map((symbol) => ({ symbol, price: 100, raw: {} })),
+      getEstimates: async (symbol: string, period: "annual" | "quarter") =>
+        period === "quarter"
+          ? [
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 2,
+                periodEndDate: "2026-06-30",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 3,
+                periodEndDate: "2026-09-30",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2026,
+                fiscalQuarter: 4,
+                periodEndDate: "2026-12-31",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+              {
+                symbol,
+                periodType: "quarter" as const,
+                fiscalYear: 2027,
+                fiscalQuarter: 1,
+                periodEndDate: "2027-03-31",
+                epsAvg: 1,
+                epsLow: null,
+                epsHigh: null,
+                analystCount: 10,
+                raw: {},
+              },
+            ]
+          : [],
+    };
+
+    const result = await runDailyIngestion({
+      repository,
+      provider,
+      runDate: "2026-05-06",
+    });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors).toEqual([
+      "QQQ: no positive ETF holding weights available for aggregate",
+      "NDX: no positive QQQ proxy holding weights available for aggregate",
+      "XLK: no positive ETF holding weights available for aggregate",
+    ]);
+    expect(finishedRuns).toEqual([
+      {
+        status: "partial",
+        symbolsProcessed: 1,
+        errors: [
+          "QQQ: no positive ETF holding weights available for aggregate",
+          "NDX: no positive QQQ proxy holding weights available for aggregate",
+          "XLK: no positive ETF holding weights available for aggregate",
+        ],
+      },
+    ]);
+
+    for (const symbol of ["QQQ", "NDX", "XLK"]) {
+      const aggregateWrite = valuationWrites.find(
+        (write) => write.symbol === symbol,
+      );
+
+      expect(aggregateWrite).toMatchObject({
+        symbol,
+        snapshotDate: "2026-05-06",
+        source: "fmp_consensus_ntm_private",
+        valuation: expect.objectContaining({
+          method: "aggregate",
+          forwardPe: null,
+          coveredWeight: 0,
+          missingWeight: 0,
+          constituentCount: 0,
+          coveredConstituentCount: 0,
+        }),
+      });
+    }
+  });
+
   it("does not aggregate stale memberships when the provider returns no current constituents", async () => {
     const finishedRuns: unknown[] = [];
     const valuationWrites: Array<
@@ -717,7 +895,9 @@ describe("runDailyIngestion", () => {
     };
     const provider: IngestionProvider = {
       getSp500Constituents: async () => [],
-      getEtfHoldings: async () => [],
+      getEtfHoldings: async () => [
+        { symbol: "AAPL", name: "Apple Inc.", weight: 1, raw: {} },
+      ],
       getQuotes: async (symbols) =>
         symbols.map((symbol) => ({
           symbol,
@@ -740,7 +920,7 @@ describe("runDailyIngestion", () => {
     expect(finishedRuns).toEqual([
       {
         status: "partial",
-        symbolsProcessed: 0,
+        symbolsProcessed: 1,
         errors: ["SP500: no constituents returned from provider"],
       },
     ]);

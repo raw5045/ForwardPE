@@ -83,20 +83,95 @@ const parsePeriodEndDate = (row: FmpRow, symbol: string, periodType: "annual" | 
     throw new Error(`FMP ${periodType} estimate for ${symbol} has invalid period end date`);
   }
 
-  const fiscalYear = Number(match[1]);
+  const calendarYear = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  const parsedDate = new Date(Date.UTC(fiscalYear, month - 1, day));
+  const parsedDate = new Date(Date.UTC(calendarYear, month - 1, day));
 
   if (
-    parsedDate.getUTCFullYear() !== fiscalYear ||
+    parsedDate.getUTCFullYear() !== calendarYear ||
     parsedDate.getUTCMonth() !== month - 1 ||
     parsedDate.getUTCDate() !== day
   ) {
     throw new Error(`FMP ${periodType} estimate for ${symbol} has invalid period end date`);
   }
 
-  return { fiscalYear, month, periodEndDate };
+  return { calendarYear, month, periodEndDate };
+};
+
+const invalidFiscalYearError = (periodType: "annual" | "quarter", symbol: string) =>
+  `FMP ${periodType} estimate for ${symbol} has invalid fiscal year`;
+
+const parseFiscalYearValue = (
+  value: unknown,
+  symbol: string,
+  periodType: "annual" | "quarter"
+): number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "number") {
+    if (Number.isInteger(value) && value >= 1900 && value <= 2200) {
+      return value;
+    }
+
+    throw new Error(invalidFiscalYearError(periodType, symbol));
+  }
+
+  if (typeof value !== "string") {
+    throw new Error(invalidFiscalYearError(periodType, symbol));
+  }
+
+  const normalizedValue = value.trim();
+  const yearMatch = /^(?:FY\s*)?(\d{4})(?:\s*[-_/ ]?\s*Q[1-4])?$/i.exec(
+    normalizedValue,
+  );
+  if (!yearMatch) {
+    return null;
+  }
+
+  const fiscalYear = Number(yearMatch[1]);
+  if (Number.isInteger(fiscalYear) && fiscalYear >= 1900 && fiscalYear <= 2200) {
+    return fiscalYear;
+  }
+
+  throw new Error(invalidFiscalYearError(periodType, symbol));
+};
+
+const parseFiscalYearFromPeriodValue = (value: unknown): number | null => {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  const yearMatch = /^FY\s*(\d{4})(?:\s*[-_/ ]?\s*Q[1-4])?$/i.exec(
+    normalizedValue,
+  );
+  return yearMatch ? Number(yearMatch[1]) : null;
+};
+
+const fiscalYearFromRecord = (
+  record: FmpRow,
+  calendarYear: number,
+  symbol: string,
+  periodType: "annual" | "quarter"
+): number => {
+  for (const value of [record.fiscalYear, record.year]) {
+    const fiscalYear = parseFiscalYearValue(value, symbol, periodType);
+    if (fiscalYear !== null) {
+      return fiscalYear;
+    }
+  }
+
+  for (const value of [record.fiscalPeriod, record.period]) {
+    const fiscalYear = parseFiscalYearFromPeriodValue(value);
+    if (fiscalYear !== null) {
+      return fiscalYear;
+    }
+  }
+
+  return calendarYear;
 };
 
 const fiscalQuarterFromMonth = (month: number, symbol: string): number => {
@@ -131,12 +206,16 @@ const parseFiscalQuarterValue = (
     return Number(numericMatch[1]);
   }
 
-  const quarterMatch = /Q(\d+)/i.exec(normalizedValue);
+  const quarterMatch = /^Q\s*([1-4])$/i.exec(normalizedValue);
   if (quarterMatch) {
-    const fiscalQuarter = Number(quarterMatch[1]);
-    if (Number.isInteger(fiscalQuarter) && fiscalQuarter >= 1 && fiscalQuarter <= 4) {
-      return fiscalQuarter;
-    }
+    return Number(quarterMatch[1]);
+  }
+
+  const fiscalPeriodMatch = /^FY\s*\d{4}\s*[-_/ ]?\s*Q\s*([1-4])$/i.exec(
+    normalizedValue,
+  );
+  if (fiscalPeriodMatch) {
+    return Number(fiscalPeriodMatch[1]);
   }
 
   throw new Error(`FMP quarter estimate for ${symbol} has invalid fiscal quarter`);
@@ -167,7 +246,13 @@ export const mapFmpEstimate = (
   const raw = row;
   const record = toRecord(row);
   const symbol = requireString(record.symbol, "FMP estimate is missing symbol");
-  const { fiscalYear, month, periodEndDate } = parsePeriodEndDate(record, symbol, periodType);
+  const { calendarYear, month, periodEndDate } = parsePeriodEndDate(record, symbol, periodType);
+  const fiscalYear = fiscalYearFromRecord(
+    record,
+    calendarYear,
+    symbol,
+    periodType,
+  );
 
   return {
     symbol,
