@@ -3,6 +3,7 @@ import { calculateStockValuation } from "../valuation/ntm";
 import type { ProviderConstituent, ProviderHolding } from "../providers/types";
 import type { EstimateInput } from "../valuation/types";
 import { sectorEtfs } from "../universe/defaults";
+import { seedUniverse } from "./seed-universe";
 import type {
   IngestionProvider,
   IngestionRepository,
@@ -18,6 +19,8 @@ type RunDailyIngestionInput = {
 const sp500MembershipSource = "fmp_spy_holdings_proxy";
 const missingSp500WeightError =
   "SP500: no positive SPY holding weights available for aggregate";
+const missingSp500ConstituentsError =
+  "SP500: no constituents returned from provider";
 
 function isPositiveFiniteNumber(
   value: number | null | undefined,
@@ -82,14 +85,17 @@ export async function runDailyIngestion(
   let symbolsProcessed = 0;
 
   try {
-    await input.repository.upsertGroup({
-      slug: "sp500",
-      name: "S&P 500",
-      type: "index",
-    });
+    await seedUniverse(input.repository, input.runDate);
 
     const sp500Constituents = await input.provider.getSp500Constituents();
-    const spyHoldings = await input.provider.getEtfHoldings("SPY");
+    const hasCurrentSp500Constituents = sp500Constituents.length > 0;
+    if (!hasCurrentSp500Constituents) {
+      errors.push(missingSp500ConstituentsError);
+    }
+
+    const spyHoldings = hasCurrentSp500Constituents
+      ? await input.provider.getEtfHoldings("SPY")
+      : [];
     const spyHoldingBySymbol = new Map(
       spyHoldings
         .filter((holding) => isPositiveFiniteNumber(holding.weight))
@@ -172,40 +178,42 @@ export async function runDailyIngestion(
       }
     }
 
-    const latestConstituents =
-      await input.repository.getLatestGroupConstituents("sp500");
-    const hasPositiveSp500Weight = latestConstituents.some((row) =>
-      isPositiveFiniteNumber(row.weight),
-    );
-
-    if (!hasPositiveSp500Weight) {
-      errors.push(missingSp500WeightError);
-    } else {
-      const stockValuations = await input.repository.getLatestStockValuations(
-        input.runDate,
-        latestConstituents.map((row) => row.symbol),
+    if (hasCurrentSp500Constituents) {
+      const latestConstituents =
+        await input.repository.getLatestGroupConstituents("sp500");
+      const hasPositiveSp500Weight = latestConstituents.some((row) =>
+        isPositiveFiniteNumber(row.weight),
       );
-      const valuationBySymbol = new Map(
-        stockValuations.map((row) => [row.symbol, row]),
-      );
-      const aggregate = calculateAggregateValuation({
-        symbol: "SP500",
-        valuationDate: input.runDate,
-        constituents: latestConstituents.map((row) => ({
-          symbol: row.symbol,
-          weight: row.weight,
-          price: valuationBySymbol.get(row.symbol)?.price ?? null,
-          ntmEps: valuationBySymbol.get(row.symbol)?.ntmEps ?? null,
-          method: valuationBySymbol.get(row.symbol)?.method ?? "unavailable",
-        })),
-      });
 
-      await input.repository.upsertValuationSnapshot({
-        symbol: "SP500",
-        snapshotDate: input.runDate,
-        valuation: aggregate,
-        source: "fmp_consensus_ntm_private",
-      });
+      if (!hasPositiveSp500Weight) {
+        errors.push(missingSp500WeightError);
+      } else {
+        const stockValuations = await input.repository.getLatestStockValuations(
+          input.runDate,
+          latestConstituents.map((row) => row.symbol),
+        );
+        const valuationBySymbol = new Map(
+          stockValuations.map((row) => [row.symbol, row]),
+        );
+        const aggregate = calculateAggregateValuation({
+          symbol: "SP500",
+          valuationDate: input.runDate,
+          constituents: latestConstituents.map((row) => ({
+            symbol: row.symbol,
+            weight: row.weight,
+            price: valuationBySymbol.get(row.symbol)?.price ?? null,
+            ntmEps: valuationBySymbol.get(row.symbol)?.ntmEps ?? null,
+            method: valuationBySymbol.get(row.symbol)?.method ?? "unavailable",
+          })),
+        });
+
+        await input.repository.upsertValuationSnapshot({
+          symbol: "SP500",
+          snapshotDate: input.runDate,
+          valuation: aggregate,
+          source: "fmp_consensus_ntm_private",
+        });
+      }
     }
 
     const status = errors.length === 0 ? "succeeded" : "partial";

@@ -4,7 +4,13 @@ import { runDailyIngestion } from "./run-daily-ingestion";
 
 describe("runDailyIngestion", () => {
   it("records stock valuations and aggregate method coverage from providers", async () => {
+    const events: string[] = [];
     const finishedRuns: unknown[] = [];
+    const groupWrites: Array<Parameters<IngestionRepository["upsertGroup"]>[0]> =
+      [];
+    const instrumentWrites: Array<
+      Parameters<IngestionRepository["upsertInstrument"]>[0]
+    > = [];
     const membershipWrites: Array<
       Parameters<IngestionRepository["upsertGroupMembership"]>[0]
     > = [];
@@ -19,22 +25,31 @@ describe("runDailyIngestion", () => {
       failIngestionRun: async () => {
         throw new Error("Expected ingestion to finish, not fail");
       },
-      upsertInstrument: async () => {},
-      upsertGroup: async () => {},
+      upsertInstrument: async (input) => {
+        instrumentWrites.push(input);
+        events.push(`instrument:${input.symbol}`);
+      },
+      upsertGroup: async (input) => {
+        groupWrites.push(input);
+      },
       upsertGroupMembership: async (input) => {
         membershipWrites.push(input);
       },
-      upsertPriceSnapshot: async () => {},
+      upsertPriceSnapshot: async (input) => {
+        events.push(`price:${input.symbol}`);
+      },
       upsertEstimateSnapshot: async () => {},
       upsertCompositionSnapshot: async () => {},
       upsertValuationSnapshot: async (input) => {
         valuationWrites.push(input);
       },
       getLatestGroupConstituents: async () =>
-        membershipWrites.map((write) => ({
-          symbol: write.symbol,
-          weight: write.weight ?? 0,
-        })),
+        membershipWrites
+          .filter((write) => write.groupSlug === "sp500")
+          .map((write) => ({
+            symbol: write.symbol,
+            weight: write.weight ?? 0,
+          })),
       getLatestStockValuations: async (_snapshotDate, symbols) =>
         valuationWrites
           .filter((write) => symbols.includes(write.symbol))
@@ -86,10 +101,12 @@ describe("runDailyIngestion", () => {
           },
         ];
       },
-      getQuotes: async () => [
-        { symbol: "AAPL", price: 100, raw: {} },
-        { symbol: "MSFT", price: 50, raw: {} },
-      ],
+      getQuotes: async (symbols) =>
+        symbols.map((symbol) => ({
+          symbol,
+          price: symbol === "MSFT" ? 50 : 100,
+          raw: {},
+        })),
       getEstimates: async (symbol: string, period: "annual" | "quarter") =>
         symbol === "AAPL" && period === "quarter"
           ? [
@@ -182,8 +199,38 @@ describe("runDailyIngestion", () => {
     expect(finishedRuns).toEqual([
       { status: "succeeded", symbolsProcessed: 2, errors: [] },
     ]);
+    expect(groupWrites).toEqual([
+      { slug: "sp500", name: "S&P 500", type: "index" },
+      { slug: "nasdaq100", name: "Nasdaq-100", type: "index" },
+      { slug: "sector-etfs", name: "Sector ETFs", type: "watchlist" },
+    ]);
+    expect(instrumentWrites).toEqual(
+      expect.arrayContaining([
+        { symbol: "SP500", name: "S&P 500", type: "index" },
+        { symbol: "QQQ", name: "Invesco QQQ Trust", type: "etf" },
+        { symbol: "XLK", name: "XLK", type: "etf" },
+      ]),
+    );
+    expect(membershipWrites).toEqual(
+      expect.arrayContaining([
+        {
+          groupSlug: "sector-etfs",
+          symbol: "XLK",
+          effectiveDate: "2026-05-06",
+          source: "manual_seed",
+          raw: { symbol: "XLK" },
+        },
+      ]),
+    );
+    expect(events.indexOf("instrument:QQQ")).toBeGreaterThanOrEqual(0);
+    expect(events.indexOf("instrument:QQQ")).toBeLessThan(
+      events.indexOf("price:QQQ"),
+    );
     expect(requestedHoldingsSymbols).toEqual(["SPY"]);
-    expect(membershipWrites).toEqual([
+    const sp500MembershipWrites = membershipWrites.filter(
+      (write) => write.groupSlug === "sp500",
+    );
+    expect(sp500MembershipWrites).toEqual([
       expect.objectContaining({
         symbol: "AAPL",
         source: "fmp_spy_holdings_proxy",
@@ -286,10 +333,12 @@ describe("runDailyIngestion", () => {
         valuationWrites.push(input);
       },
       getLatestGroupConstituents: async () =>
-        membershipWrites.map((write) => ({
-          symbol: write.symbol,
-          weight: write.weight ?? 0,
-        })),
+        membershipWrites
+          .filter((write) => write.groupSlug === "sp500")
+          .map((write) => ({
+            symbol: write.symbol,
+            weight: write.weight ?? 0,
+          })),
       getLatestStockValuations: async (_snapshotDate, symbols) =>
         valuationWrites
           .filter((write) => symbols.includes(write.symbol))
@@ -391,5 +440,80 @@ describe("runDailyIngestion", () => {
       (write) => write.symbol === "SP500",
     );
     expect(aggregateWrite).toBeUndefined();
+  });
+
+  it("does not aggregate stale memberships when the provider returns no current constituents", async () => {
+    const finishedRuns: unknown[] = [];
+    const valuationWrites: Array<
+      Parameters<IngestionRepository["upsertValuationSnapshot"]>[0]
+    > = [];
+    const repository: IngestionRepository = {
+      startIngestionRun: async () => "run-1",
+      finishIngestionRun: async (_runId, details) => {
+        finishedRuns.push(details);
+      },
+      failIngestionRun: async () => {
+        throw new Error("Expected ingestion to finish partial, not fail");
+      },
+      upsertInstrument: async () => {},
+      upsertGroup: async () => {},
+      upsertGroupMembership: async () => {},
+      upsertPriceSnapshot: async () => {},
+      upsertEstimateSnapshot: async () => {},
+      upsertCompositionSnapshot: async () => {},
+      upsertValuationSnapshot: async (input) => {
+        valuationWrites.push(input);
+      },
+      getLatestGroupConstituents: async () => [
+        { symbol: "AAPL", weight: 0.6 },
+        { symbol: "MSFT", weight: 0.4 },
+      ],
+      getLatestStockValuations: async () => [
+        {
+          symbol: "AAPL",
+          price: 100,
+          ntmEps: 5,
+          method: "quarterly_sum" as const,
+        },
+        {
+          symbol: "MSFT",
+          price: 50,
+          ntmEps: 5,
+          method: "fiscal_year_interpolation" as const,
+        },
+      ],
+    };
+    const provider: IngestionProvider = {
+      getSp500Constituents: async () => [],
+      getEtfHoldings: async () => [],
+      getQuotes: async (symbols) =>
+        symbols.map((symbol) => ({
+          symbol,
+          price: 100,
+          raw: {},
+        })),
+      getEstimates: async () => [],
+    };
+
+    const result = await runDailyIngestion({
+      repository,
+      provider,
+      runDate: "2026-05-06",
+    });
+
+    expect(result.status).toBe("partial");
+    expect(result.errors).toEqual([
+      "SP500: no constituents returned from provider",
+    ]);
+    expect(finishedRuns).toEqual([
+      {
+        status: "partial",
+        symbolsProcessed: 0,
+        errors: ["SP500: no constituents returned from provider"],
+      },
+    ]);
+    expect(
+      valuationWrites.find((write) => write.symbol === "SP500"),
+    ).toBeUndefined();
   });
 });
