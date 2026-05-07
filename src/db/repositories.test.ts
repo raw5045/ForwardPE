@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { ForwardPeRepository } from "./repositories";
 
+type SqlOrdering = {
+  queryChunks?: Array<{ name?: string }>;
+};
+
+function orderedColumnName(ordering: unknown) {
+  return (ordering as SqlOrdering).queryChunks?.[1]?.name;
+}
+
 describe("ForwardPeRepository", () => {
   it("preserves existing instrument metadata when optional fields are omitted from an upsert update", async () => {
     const inserts: unknown[] = [];
@@ -101,7 +109,7 @@ describe("ForwardPeRepository", () => {
     });
   });
 
-  it("uses equal weights for latest group constituents when stored weights are missing", async () => {
+  it("does not invent equal weights for latest group constituents when stored weights are missing", async () => {
     const query = {
       from: () => query,
       innerJoin: () => query,
@@ -118,8 +126,46 @@ describe("ForwardPeRepository", () => {
     const repository = new ForwardPeRepository(db as never);
 
     await expect(repository.getLatestGroupConstituents("sp500")).resolves.toEqual([
-      { symbol: "AAPL", weight: 0.5 },
-      { symbol: "MSFT", weight: 0.5 },
+      { symbol: "AAPL", weight: 0 },
+      { symbol: "MSFT", weight: 0 },
     ]);
+  });
+
+  it("orders same-date stock valuations by updated timestamp before created timestamp", async () => {
+    const orderings: unknown[] = [];
+    const query = {
+      from: () => query,
+      innerJoin: () => query,
+      where: () => query,
+      orderBy: async (...args: unknown[]) => {
+        orderings.push(...args);
+
+        return [
+          {
+            symbol: "AAPL",
+            price: "100",
+            ntmEps: "5",
+            method: "quarterly_sum",
+          },
+        ];
+      },
+    };
+    const db = {
+      select: () => query,
+    };
+    const repository = new ForwardPeRepository(db as never);
+
+    await expect(
+      repository.getLatestStockValuations("2026-05-06", ["AAPL"]),
+    ).resolves.toEqual([
+      {
+        symbol: "AAPL",
+        price: 100,
+        ntmEps: 5,
+        method: "quarterly_sum",
+      },
+    ]);
+    expect(orderedColumnName(orderings[0])).toBe("updated_at");
+    expect(orderedColumnName(orderings[1])).toBe("created_at");
   });
 });

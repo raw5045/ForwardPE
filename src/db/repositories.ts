@@ -522,22 +522,16 @@ export class ForwardPeRepository {
       return [];
     }
 
-    const latestRows = rows.filter((row) => row.effectiveDate === latestDate);
-    const shouldUseEqualWeights =
-      latestRows.length > 0 &&
-      latestRows.every((row) => !isPositiveFiniteNumber(fromNumeric(row.weight)));
-    const equalWeight = shouldUseEqualWeights ? 1 / latestRows.length : null;
+    return rows
+      .filter((row) => row.effectiveDate === latestDate)
+      .map((row) => {
+        const storedWeight = fromNumeric(row.weight);
 
-    return latestRows.map((row) => {
-      const storedWeight = fromNumeric(row.weight);
-
-      return {
-        symbol: row.symbol,
-        weight: isPositiveFiniteNumber(storedWeight)
-          ? storedWeight
-          : equalWeight ?? 0,
-      };
-    });
+        return {
+          symbol: row.symbol,
+          weight: isPositiveFiniteNumber(storedWeight) ? storedWeight : 0,
+        };
+      });
   }
 
   async getLatestStockValuations(
@@ -574,7 +568,10 @@ export class ForwardPeRepository {
           inArray(instruments.symbol, symbols),
         ),
       )
-      .orderBy(desc(valuationSnapshots.createdAt));
+      .orderBy(
+        desc(valuationSnapshots.updatedAt),
+        desc(valuationSnapshots.createdAt),
+      );
 
     const latestBySymbol = new Map<
       string,

@@ -1,5 +1,6 @@
 import { calculateAggregateValuation } from "../valuation/aggregate";
 import { calculateStockValuation } from "../valuation/ntm";
+import type { ProviderConstituent, ProviderHolding } from "../providers/types";
 import type { EstimateInput } from "../valuation/types";
 import { sectorEtfs } from "../universe/defaults";
 import type {
@@ -13,6 +14,16 @@ type RunDailyIngestionInput = {
   provider: IngestionProvider;
   runDate: string;
 };
+
+const sp500MembershipSource = "fmp_spy_holdings_proxy";
+const missingSp500WeightError =
+  "SP500: no positive SPY holding weights available for aggregate";
+
+function isPositiveFiniteNumber(
+  value: number | null | undefined,
+): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
 
 function providerEstimateToInput(
   estimate: {
@@ -40,6 +51,26 @@ function uniqueSymbols(symbols: string[]) {
   return Array.from(new Set(symbols));
 }
 
+function membershipRaw(
+  constituent: ProviderConstituent,
+  holding: ProviderHolding | undefined,
+) {
+  return {
+    constituent: {
+      source: "fmp_sp500_constituents",
+      raw: constituent.raw,
+    },
+    weightProxy: holding
+      ? {
+          source: sp500MembershipSource,
+          parentSymbol: "SPY",
+          weight: holding.weight,
+          raw: holding.raw,
+        }
+      : null,
+  };
+}
+
 export async function runDailyIngestion(
   input: RunDailyIngestionInput,
 ): Promise<IngestionResult> {
@@ -58,8 +89,16 @@ export async function runDailyIngestion(
     });
 
     const sp500Constituents = await input.provider.getSp500Constituents();
+    const spyHoldings = await input.provider.getEtfHoldings("SPY");
+    const spyHoldingBySymbol = new Map(
+      spyHoldings
+        .filter((holding) => isPositiveFiniteNumber(holding.weight))
+        .map((holding) => [holding.symbol, holding]),
+    );
 
     for (const constituent of sp500Constituents) {
+      const spyHolding = spyHoldingBySymbol.get(constituent.symbol);
+
       await input.repository.upsertInstrument({
         symbol: constituent.symbol,
         name: constituent.name,
@@ -71,8 +110,9 @@ export async function runDailyIngestion(
         groupSlug: "sp500",
         symbol: constituent.symbol,
         effectiveDate: input.runDate,
-        source: "fmp",
-        raw: constituent.raw,
+        weight: spyHolding?.weight ?? null,
+        source: sp500MembershipSource,
+        raw: membershipRaw(constituent, spyHolding),
       });
     }
 
@@ -134,6 +174,12 @@ export async function runDailyIngestion(
 
     const latestConstituents =
       await input.repository.getLatestGroupConstituents("sp500");
+    if (
+      !latestConstituents.some((row) => isPositiveFiniteNumber(row.weight))
+    ) {
+      errors.push(missingSp500WeightError);
+    }
+
     const stockValuations = await input.repository.getLatestStockValuations(
       input.runDate,
       latestConstituents.map((row) => row.symbol),
