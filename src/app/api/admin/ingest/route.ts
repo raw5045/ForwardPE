@@ -21,6 +21,21 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function isValidRunDate(runDate: string) {
+  const [yearText, monthText, dayText] = runDate.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day &&
+    date.toISOString().slice(0, 10) === runDate
+  );
+}
+
 async function parseIngestBody(request: Request): Promise<ParsedIngestBody> {
   const rawBody = await request.text();
 
@@ -47,6 +62,10 @@ async function parseIngestBody(request: Request): Promise<ParsedIngestBody> {
 
   if (typeof runDate !== "string" || !runDatePattern.test(runDate)) {
     return { ok: false, error: "runDate must use YYYY-MM-DD format" };
+  }
+
+  if (!isValidRunDate(runDate)) {
+    return { ok: false, error: "runDate must be a valid YYYY-MM-DD date" };
   }
 
   return { ok: true, runDate };

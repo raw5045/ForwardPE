@@ -88,6 +88,30 @@ describe("POST /api/admin/ingest", () => {
     expect(runDailyIngestionMock).not.toHaveBeenCalled();
   });
 
+  it("returns 400 for impossible runDate month values", async () => {
+    const response = await POST(
+      createPostRequest(JSON.stringify({ runDate: "2026-99-99" }))
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "runDate must be a valid YYYY-MM-DD date"
+    });
+    expect(runDailyIngestionMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for impossible runDate day values", async () => {
+    const response = await POST(
+      createPostRequest(JSON.stringify({ runDate: "2026-02-30" }))
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "runDate must be a valid YYYY-MM-DD date"
+    });
+    expect(runDailyIngestionMock).not.toHaveBeenCalled();
+  });
+
   it("passes valid runDate values through to ingestion", async () => {
     const response = await POST(
       createPostRequest(JSON.stringify({ runDate: "2026-05-01" }))
