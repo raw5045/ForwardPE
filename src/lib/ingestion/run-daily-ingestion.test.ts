@@ -390,13 +390,6 @@ describe("runDailyIngestion", () => {
     const aggregateWrite = valuationWrites.find(
       (write) => write.symbol === "SP500",
     );
-    expect(aggregateWrite?.valuation.method).toBe("aggregate");
-
-    if (aggregateWrite?.valuation.method !== "aggregate") {
-      throw new Error("Expected SP500 aggregate valuation");
-    }
-
-    expect(aggregateWrite.valuation.coveredWeight).toBe(0);
-    expect(aggregateWrite.valuation.forwardPe).toBeNull();
+    expect(aggregateWrite).toBeUndefined();
   });
 });

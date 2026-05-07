@@ -174,37 +174,39 @@ export async function runDailyIngestion(
 
     const latestConstituents =
       await input.repository.getLatestGroupConstituents("sp500");
-    if (
-      !latestConstituents.some((row) => isPositiveFiniteNumber(row.weight))
-    ) {
+    const hasPositiveSp500Weight = latestConstituents.some((row) =>
+      isPositiveFiniteNumber(row.weight),
+    );
+
+    if (!hasPositiveSp500Weight) {
       errors.push(missingSp500WeightError);
+    } else {
+      const stockValuations = await input.repository.getLatestStockValuations(
+        input.runDate,
+        latestConstituents.map((row) => row.symbol),
+      );
+      const valuationBySymbol = new Map(
+        stockValuations.map((row) => [row.symbol, row]),
+      );
+      const aggregate = calculateAggregateValuation({
+        symbol: "SP500",
+        valuationDate: input.runDate,
+        constituents: latestConstituents.map((row) => ({
+          symbol: row.symbol,
+          weight: row.weight,
+          price: valuationBySymbol.get(row.symbol)?.price ?? null,
+          ntmEps: valuationBySymbol.get(row.symbol)?.ntmEps ?? null,
+          method: valuationBySymbol.get(row.symbol)?.method ?? "unavailable",
+        })),
+      });
+
+      await input.repository.upsertValuationSnapshot({
+        symbol: "SP500",
+        snapshotDate: input.runDate,
+        valuation: aggregate,
+        source: "fmp_consensus_ntm_private",
+      });
     }
-
-    const stockValuations = await input.repository.getLatestStockValuations(
-      input.runDate,
-      latestConstituents.map((row) => row.symbol),
-    );
-    const valuationBySymbol = new Map(
-      stockValuations.map((row) => [row.symbol, row]),
-    );
-    const aggregate = calculateAggregateValuation({
-      symbol: "SP500",
-      valuationDate: input.runDate,
-      constituents: latestConstituents.map((row) => ({
-        symbol: row.symbol,
-        weight: row.weight,
-        price: valuationBySymbol.get(row.symbol)?.price ?? null,
-        ntmEps: valuationBySymbol.get(row.symbol)?.ntmEps ?? null,
-        method: valuationBySymbol.get(row.symbol)?.method ?? "unavailable",
-      })),
-    });
-
-    await input.repository.upsertValuationSnapshot({
-      symbol: "SP500",
-      snapshotDate: input.runDate,
-      valuation: aggregate,
-      source: "fmp_consensus_ntm_private",
-    });
 
     const status = errors.length === 0 ? "succeeded" : "partial";
     await input.repository.finishIngestionRun(runId, {
